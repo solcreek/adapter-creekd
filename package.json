@@ -1,0 +1,60 @@
+{
+  "name": "@solcreek/adapter-creekd",
+  "version": "0.1.0",
+  "description": "Next.js deployment adapter for @solcreek/creekd self-host (Bun / Node runtime)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./cache-handler": {
+      "default": "./dist/cache-handler.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "!dist/**/*.map"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "creek",
+    "creekd",
+    "nextjs",
+    "adapter",
+    "self-host",
+    "bun",
+    "node",
+    "deployment"
+  ],
+  "author": "SolCreek",
+  "license": "Apache-2.0",
+  "homepage": "https://creek.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/solcreek/adapter-creekd.git"
+  },
+  "dependencies": {
+    "@solcreek/adapter-core": "^0.1.0"
+  },
+  "peerDependencies": {
+    "next": ">=16.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "next": "16.2.3",
+    "typescript": "^5.8.2",
+    "vitest": "^4.1.2"
+  },
+  "packageManager": "pnpm@10.33.0"
+}
