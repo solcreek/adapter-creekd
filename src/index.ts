@@ -1,5 +1,5 @@
-// Package entry. Body lands in the next commit; this file exists so
-// the scaffold typechecks + builds cleanly before the adapter
-// implementation is written.
+// Package entry. The NextAdapter implementation arrives in the next
+// commit; for now the manifest schema is the only public surface.
 
-export {};
+export type { CreekdManifest, WriteManifestOptions } from "./manifest.js";
+export { writeManifest } from "./manifest.js";
