@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@solcreek/adapter-core':
-        specifier: ^0.1.0
-        version: 0.1.0(next@16.2.3(react-dom@19.2.6(react@19.2.6))(react@19.2.6))
+        specifier: ^0.1.1
+        version: 0.1.1(next@16.2.3(react-dom@19.2.6(react@19.2.6))(react@19.2.6))
     devDependencies:
       '@types/node':
         specifier: ^22.13.10
@@ -354,8 +354,8 @@ packages:
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
 
-  '@solcreek/adapter-core@0.1.0':
-    resolution: {integrity: sha512-SZ6bAJuYE51sWYoDqAd84AgFxQxx56o0pnMbRnS6mT5Wwox5+GDgc79Zur33AJijWKB9by3x1I2UF3fJCFO8Ag==}
+  '@solcreek/adapter-core@0.1.1':
+    resolution: {integrity: sha512-K1K3LeVVCjIMxygw53O6xVsJV7hrBEAyXgiKrQTEufpH24aa9KDz8bY3tFNW8ec3CjcOj3xFS1JWYnVJCTjZJQ==}
     peerDependencies:
       next: '>=16.2.3'
 
@@ -953,7 +953,7 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.1': {}
 
-  '@solcreek/adapter-core@0.1.0(next@16.2.3(react-dom@19.2.6(react@19.2.6))(react@19.2.6))':
+  '@solcreek/adapter-core@0.1.1(next@16.2.3(react-dom@19.2.6(react@19.2.6))(react@19.2.6))':
     dependencies:
       next: 16.2.3(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
 

@@ -42,10 +42,21 @@ const config: NextConfig = {
 export default config;
 ```
 
+Add a `postbuild` script so Next.js's standalone tree gets its static and public assets (this matches Next.js's own self-host guidance — the standalone output deliberately omits them):
+
+```json
+{
+  "scripts": {
+    "build": "next build",
+    "postbuild": "cp -r public .next/standalone/ 2>/dev/null; cp -r .next/static .next/standalone/.next/"
+  }
+}
+```
+
 Then build:
 
 ```bash
-next build
+pnpm build
 ```
 
 This emits a standard Next.js standalone output at `.next/standalone/` plus a `.creek-creekd/manifest.json` describing how to spawn it. Deploy via creekctl:

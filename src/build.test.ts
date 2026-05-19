@@ -1,54 +1,20 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
 import { handleBuild, type HandleBuildOptions } from "./build.js";
 import type { CreekdManifest } from "./manifest.js";
 
-/**
- * Build a minimum simulated Next.js build tree in a tempdir:
- *
- *   project/
- *     .next/
- *       standalone/
- *         server.js          (the marker handleBuild looks for)
- *       static/
- *         hashed-asset.js
- *     public/
- *       logo.png
- *
- * Returns { projectDir, distDir }. handleBuild copies static/ and
- * public/ into the standalone subtree, then writes the manifest.
- */
+// onBuildComplete fires BEFORE Next.js's standalone codegen, so the
+// tempdir intentionally does NOT pre-create .next/standalone/ —
+// handleBuild must work without it existing yet.
 function makeProject(): { projectDir: string; distDir: string } {
   const projectDir = mkdtempSync(path.join(tmpdir(), "adapter-creekd-build-"));
   const distDir = path.join(projectDir, ".next");
-
-  mkdirSync(path.join(distDir, "standalone"), { recursive: true });
-  writeFileSync(
-    path.join(distDir, "standalone", "server.js"),
-    "// pretend Next.js wrote this",
-  );
-
-  mkdirSync(path.join(distDir, "static"), { recursive: true });
-  writeFileSync(path.join(distDir, "static", "hashed-asset.js"), "/* asset */");
-
-  mkdirSync(path.join(projectDir, "public"), { recursive: true });
-  writeFileSync(path.join(projectDir, "public", "logo.png"), "binary");
-
   return { projectDir, distDir };
 }
 
-// Minimum shape of the BuildContext the adapter uses. handleBuild
-// only touches a small subset of the real Next.js NextAdapter
-// BuildContext; we mock just those fields here.
 function makeCtx(projectDir: string, distDir: string) {
   return {
     projectDir,
@@ -60,7 +26,6 @@ function makeCtx(projectDir: string, distDir: string) {
       appRoutes: [],
       pages: [],
       pagesApi: [],
-      // BuildContext.outputs.middleware is undefined when no middleware.
       middleware: undefined,
     },
   } as unknown as Parameters<typeof handleBuild>[0];
@@ -70,7 +35,7 @@ const baseOpts: HandleBuildOptions = {
   runtime: "bun",
   port: 3000,
   adapterName: "@solcreek/adapter-creekd",
-  adapterVersion: "0.1.0",
+  adapterVersion: "0.1.1",
 };
 
 describe("handleBuild", () => {
@@ -103,57 +68,21 @@ describe("handleBuild", () => {
     expect(manifest.entrypoint).toBe(".next/standalone/server.js");
     expect(manifest.adapter).toEqual({
       name: "@solcreek/adapter-creekd",
-      version: "0.1.0",
+      version: "0.1.1",
     });
   });
 
-  it("copies .next/static into standalone tree", async () => {
-    await handleBuild(makeCtx(projectDir, distDir), baseOpts);
-    const copied = path.join(
-      projectDir,
-      ".next",
-      "standalone",
-      ".next",
-      "static",
-      "hashed-asset.js",
-    );
-    expect(readFileSync(copied, "utf-8")).toContain("asset");
-  });
-
-  it("copies public/ into standalone tree", async () => {
-    await handleBuild(makeCtx(projectDir, distDir), baseOpts);
-    const copied = path.join(
-      projectDir,
-      ".next",
-      "standalone",
-      "public",
-      "logo.png",
-    );
-    expect(readFileSync(copied, "utf-8")).toBe("binary");
-  });
-
-  it("lists every copied dir in serveDirs", async () => {
+  it("declares the standalone dir in serveDirs", async () => {
     await handleBuild(makeCtx(projectDir, distDir), baseOpts);
     const { serveDirs } = readManifest();
-    expect(serveDirs).toContain(".next/standalone");
-    expect(serveDirs).toContain(path.join(".next", "standalone", ".next", "static"));
-    expect(serveDirs).toContain(path.join(".next", "standalone", "public"));
+    expect(serveDirs).toEqual([".next/standalone"]);
   });
 
-  it("omits public/ from serveDirs when project has none", async () => {
-    rmSync(path.join(projectDir, "public"), { recursive: true });
-    await handleBuild(makeCtx(projectDir, distDir), baseOpts);
-    const { serveDirs } = readManifest();
-    expect(
-      serveDirs.some((d) => d.endsWith(path.join("standalone", "public"))),
-    ).toBe(false);
-  });
-
-  it("throws clearly when .next/standalone/server.js is missing", async () => {
-    rmSync(path.join(distDir, "standalone"), { recursive: true });
+  it("does not require .next/standalone to exist at write time", async () => {
+    // The directory is absent; handleBuild must not throw.
     await expect(
       handleBuild(makeCtx(projectDir, distDir), baseOpts),
-    ).rejects.toThrow(/server\.js not found/);
+    ).resolves.toBeUndefined();
   });
 
   it("preserves runtime: node when chosen", async () => {

@@ -10,7 +10,7 @@ import { handleBuild, type HandleBuildOptions } from "./build.js";
 // Adapter package identity, embedded into every emitted manifest.
 // Bumped manually alongside package.json on each release.
 const ADAPTER_NAME = "@solcreek/adapter-creekd";
-const ADAPTER_VERSION = "0.1.0";
+const ADAPTER_VERSION = "0.1.1";
 
 /**
  * User-facing options for the adapter. All are optional; defaults are

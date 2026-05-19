@@ -37,9 +37,10 @@ export interface CreekdManifest extends DeployManifestBase {
   port: number;
   /**
    * Directories the supervised process needs at runtime, relative to
-   * the project root. The full standalone tree (.next/standalone/),
-   * the static assets (.next/static/, copied into standalone by the
-   * adapter), and the user's public/ folder.
+   * the project root. The standalone tree (.next/standalone/) is the
+   * only required entry; Next.js's self-host contract expects the
+   * user to arrange .next/static and public/ inside that tree via a
+   * postbuild script.
    */
   serveDirs: string[];
 }
