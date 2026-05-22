@@ -1,10 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import CacheHandler from "./cache-handler.js";
+
+const require = createRequire(import.meta.url);
 
 describe("CreekdCacheHandler", () => {
   let cacheDir: string;
@@ -69,6 +72,20 @@ describe("CreekdCacheHandler", () => {
     const second = new CacheHandler();
     const hit = await second.get("fetch:tagged");
     expect(hit?.cacheState).toBe("stale");
+  });
+
+  it("mirrors tag invalidation into Next.js runtime tag manifest", async () => {
+    const { tagsManifest } = require(
+      "next/dist/server/lib/incremental-cache/tags-manifest.external.js",
+    ) as { tagsManifest: Map<string, { stale?: number; expired?: number }> };
+    tagsManifest.delete("runtime-tag");
+
+    const cache = new CacheHandler();
+    await cache.revalidateTag("runtime-tag", { expire: 60 });
+
+    const mirrored = tagsManifest.get("runtime-tag");
+    expect(typeof mirrored?.stale).toBe("number");
+    expect(typeof mirrored?.expired).toBe("number");
   });
 
   it("removes persisted entries when set to null", async () => {

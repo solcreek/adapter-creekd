@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
@@ -19,8 +20,14 @@ interface StoredEntry extends CacheEntry {
   schema: 1;
 }
 
+interface TagState {
+  stale?: number;
+  expired?: number;
+}
+
 const DEFAULT_L1_ENTRIES = 2048;
 let lastClock = 0;
+const require = createRequire(import.meta.url);
 
 function hashKey(key: string): string {
   return createHash("sha256").update(key).digest("hex");
@@ -53,6 +60,36 @@ function maxL1Entries(ctx?: CacheHandlerContext): number {
   const fromNext = ctx?.maxMemoryCacheSize;
   if (typeof fromNext === "number" && fromNext === 0) return 0;
   return DEFAULT_L1_ENTRIES;
+}
+
+function loadNextTagsManifest(): Map<string, TagState> | undefined {
+  try {
+    const mod = require(
+      "next/dist/server/lib/incremental-cache/tags-manifest.external.js",
+    ) as { tagsManifest?: Map<string, TagState> };
+    return mod.tagsManifest;
+  } catch {
+    return undefined;
+  }
+}
+
+function coerceTagState(value: unknown): TagState | null {
+  if (typeof value === "number") return { stale: value };
+  if (!value || typeof value !== "object") return null;
+
+  const state: TagState = {};
+  const stale = (value as { stale?: unknown }).stale;
+  const expired = (value as { expired?: unknown }).expired;
+  if (typeof stale === "number") state.stale = stale;
+  if (typeof expired === "number") state.expired = expired;
+  return state.stale === undefined && state.expired === undefined ? null : state;
+}
+
+function rememberTagStateClock(state: TagState): void {
+  const now = Date.now();
+  for (const value of [state.stale, state.expired]) {
+    if (typeof value === "number") rememberClock(Math.min(value, now));
+  }
 }
 
 async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
@@ -94,7 +131,8 @@ export default class CreekdCacheHandler {
   private readonly tagsPath: string;
   private readonly l1MaxEntries: number;
   private readonly l1 = new Map<string, CacheEntry>();
-  private readonly tagInvalidatedAt = new Map<string, number>();
+  private readonly tagStates = new Map<string, TagState>();
+  private readonly nextTagsManifest = loadNextTagsManifest();
   private readonly ready: Promise<void>;
 
   constructor(ctx?: CacheHandlerContext) {
@@ -151,11 +189,23 @@ export default class CreekdCacheHandler {
     await writeJsonAtomic(this.entryPath(key), stored);
   }
 
-  async revalidateTag(tag: string | string[]): Promise<void> {
+  async revalidateTag(
+    tag: string | string[],
+    durations?: { expire?: number },
+  ): Promise<void> {
     await this.ready;
     const now = nextClock();
     for (const item of Array.isArray(tag) ? tag : [tag]) {
-      this.tagInvalidatedAt.set(item, now);
+      const state = { ...this.tagStates.get(item) };
+      if (durations) {
+        state.stale = now;
+        if (durations.expire !== undefined) {
+          state.expired = now + durations.expire * 1000;
+        }
+      } else {
+        state.expired = now;
+      }
+      this.setTagState(item, state);
     }
     await this.persistTags();
   }
@@ -213,22 +263,31 @@ export default class CreekdCacheHandler {
 
   private isStaleByTags(entry: CacheEntry): boolean {
     for (const tag of entry.tags) {
-      const invalidatedAt = this.tagInvalidatedAt.get(tag);
-      if (invalidatedAt !== undefined && invalidatedAt > entry.clock) {
+      const state = this.tagStates.get(tag);
+      if (
+        (state?.stale !== undefined && state.stale > entry.clock) ||
+        (state?.expired !== undefined && state.expired > entry.clock)
+      ) {
         return true;
       }
     }
     return false;
   }
 
+  private setTagState(tag: string, state: TagState): void {
+    this.tagStates.set(tag, state);
+    this.nextTagsManifest?.set(tag, state);
+  }
+
   private async loadTags(): Promise<void> {
     try {
       const raw = await fs.readFile(this.tagsPath, "utf8");
       const data = JSON.parse(raw) as Record<string, unknown>;
-      for (const [tag, timestamp] of Object.entries(data)) {
-        if (typeof timestamp === "number") {
-          rememberClock(timestamp);
-          this.tagInvalidatedAt.set(tag, timestamp);
+      for (const [tag, value] of Object.entries(data)) {
+        const state = coerceTagState(value);
+        if (state) {
+          rememberTagStateClock(state);
+          this.setTagState(tag, state);
         }
       }
     } catch {
@@ -239,7 +298,7 @@ export default class CreekdCacheHandler {
   private async persistTags(): Promise<void> {
     await writeJsonAtomic(
       this.tagsPath,
-      Object.fromEntries(this.tagInvalidatedAt),
+      Object.fromEntries(this.tagStates),
     );
   }
 }
