@@ -1,9 +1,11 @@
 {
   "version": 2,
-  "_comment": "Adapter-creekd deploy-test exclusions. Merged with Next.js's canonical test/deploy-tests-manifest.json via NEXT_EXTERNAL_TESTS_FILTERS. Empty until a test is proven inapplicable to a single-node self-host adapter.",
+  "_comment": "Adapter-creekd deploy-test exclusions. Merged with Next.js's canonical test/deploy-tests-manifest.json via NEXT_EXTERNAL_TESTS_FILTERS. expire-time is upstream-marked with it.failing for a Vercel Proxy limitation; adapter-creekd already satisfies the intended behavior, so running the single-test file in deploy mode makes the failing marker fail.",
   "suites": {},
   "rules": {
     "include": [],
-    "exclude": []
+    "exclude": [
+      "test/e2e/app-dir/expire-time/expire-time.test.ts"
+    ]
   }
 }
