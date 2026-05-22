@@ -24,6 +24,7 @@
   "files": [
     "dist",
     "docs",
+    "fixtures",
     "scripts",
     "!dist/**/*.test.*",
     "!dist/**/*.map"
@@ -34,6 +35,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "bench:cache": "pnpm build && node scripts/bench-cache.mjs",
+    "bench:next": "pnpm build && node scripts/bench-next-self-host.mjs",
     "test:watch": "vitest",
     "clean": "rm -rf dist"
   },
@@ -62,7 +64,10 @@
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "@types/react": "^19.2.15",
     "next": "16.2.3",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
     "typescript": "^5.8.2",
     "vitest": "^4.1.2"
   },

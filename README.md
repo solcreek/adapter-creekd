@@ -93,8 +93,11 @@ const config: NextConfig = {
 Production builds use adapter-creekd's Next.js cache handler:
 
 - L1: process-local memory for hot entries.
-- L2: filesystem persistence for ISR, fetch cache, and `'use cache'` data.
-- Tag invalidation state is persisted, so `revalidateTag()` survives process restart.
+- L2: filesystem persistence for ISR, fetch cache, App Router page cache, and
+  optimized image cache.
+- Tag invalidation state is persisted and mirrored into Next.js's runtime tag
+  manifest, so `revalidateTag()` works for App Router fetch/page cache and
+  survives process restart.
 - Next's built-in memory cache is disabled (`cacheMaxMemorySize: 0`) so invalidation and persistence are owned by the creekd handler.
 - Optimized `next/image` entries opt into the same handler via `images.customCacheHandler`.
 
@@ -102,6 +105,30 @@ By default, the cache lives under Next's server dist tree at `.next/cache/creekd
 Set `CREEK_NEXT_CACHE_DIR=/path/to/cache` to place it on a creekd volume or another
 durable local disk path. Set `CREEK_NEXT_CACHE_L1_ENTRIES=0` to disable the L1
 memory layer, or set it to a positive integer to cap hot entries.
+
+## Benchmarks
+
+Run the low-level handler benchmark:
+
+```bash
+pnpm bench:cache
+```
+
+Run the self-host Next.js fixture benchmark:
+
+```bash
+pnpm bench:next
+```
+
+`bench:next` builds a real Next.js app with this adapter, runs the postbuild
+asset copy, starts the standalone server, and measures home route hits, ISR,
+tagged fetch cache with `revalidateTag()`, optimized image cache, and streaming
+TTFB/total latency. Useful knobs:
+
+```bash
+NEXT_BENCH_ITERATIONS=50 pnpm bench:next
+NEXT_BENCH_KEEP=1 NEXT_BENCH_VERBOSE=1 pnpm bench:next
+```
 
 ## How it compares
 

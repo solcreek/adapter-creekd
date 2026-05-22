@@ -1,0 +1,15 @@
+{
+  "private": true,
+  "name": "adapter-creekd-next-self-host-fixture",
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "postbuild": "adapter-creekd postbuild"
+  },
+  "dependencies": {
+    "@solcreek/adapter-creekd": "workspace:*",
+    "next": "16.2.3",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  }
+}

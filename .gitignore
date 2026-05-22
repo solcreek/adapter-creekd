@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.bench/
 *.tsbuildinfo
 package-lock.json
 .claude/
