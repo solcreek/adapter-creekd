@@ -35,6 +35,14 @@ let text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
 for (const key of ['allowBuilds', 'ignoredBuiltDependencies', 'neverBuiltDependencies', 'onlyBuiltDependencies']) {
   text = text.replace(new RegExp('^' + key + ':\\\\n(?:[ \\\\t].*(?:\\\\n|$))*', 'm'), '');
 }
+if (/^minimumReleaseAge:\\s*/m.test(text) && !/^minimumReleaseAgeExclude:\\n(?:[ \\\\t].*(?:\\n|$))*[ \\\\t]- ['\"]?@solcreek\\/adapter-core['\"]?/m.test(text)) {
+  const excludeBlock = /^minimumReleaseAgeExclude:\\n(?:[ \\\\t].*(?:\\n|$))*/m;
+  if (excludeBlock.test(text)) {
+    text = text.replace(excludeBlock, (block) => block + '  - @solcreek/adapter-core\\n');
+  } else {
+    text = text.replace(/^minimumReleaseAge:.*(?:\\n|$)/m, (line) => line + 'minimumReleaseAgeExclude:\\n  - @solcreek/adapter-core\\n');
+  }
+}
 text = allowBlock + text.replace(/^\\n+/, '');
 if (!text.endsWith('\\n')) text += '\\n';
 fs.writeFileSync(file, text);
@@ -64,12 +72,18 @@ fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
 fi
 
 PKG_MANAGER=$(node -e "try{const p=JSON.parse(require('fs').readFileSync('package.json','utf8'));console.log(p.packageManager||'')}catch{console.log('')}")
+case "${PKG_MANAGER}" in
+  npm@*) POST_BUILD_CMD="npm run post-build" ;;
+  yarn@*) POST_BUILD_CMD="yarn post-build" ;;
+  bun@*) POST_BUILD_CMD="bun run post-build" ;;
+  *) POST_BUILD_CMD="pnpm post-build" ;;
+esac
 log "Installing project dependencies..."
 if [[ "${PKG_MANAGER}" == npm@* ]]; then
   npm install --legacy-peer-deps --cache "${NPM_CACHE_DIR}" --prefer-offline --no-audit --no-fund >&2 2>&1
 else
   ensure_pnpm_build_policy
-  pnpm install --store-dir "${PNPM_STORE_DIR}" --no-frozen-lockfile --prefer-offline >&2 2>&1
+  pnpm install --store-dir "${PNPM_STORE_DIR}" --no-frozen-lockfile --prefer-offline --config.minimumReleaseAge=0 >&2 2>&1
 fi
 log "package install complete"
 
@@ -96,8 +110,14 @@ if (script && !script.includes('--experimental-next-config-strip-types')) {
     /\\bnext build\\b/,
     'next build --experimental-next-config-strip-types'
   );
-  fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
 }
+if (pkg.scripts && typeof pkg.scripts.build === 'string') {
+  pkg.scripts.build = pkg.scripts.build.replace(
+    /&&\\s*pnpm\\s+post-build\\b/g,
+    '&& ${POST_BUILD_CMD}'
+  );
+}
+fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
 " >&2 2>&1
 
 if node -e "const p=JSON.parse(require('fs').readFileSync('package.json','utf8'));process.exit(p.scripts&&p.scripts.build?0:1);" 2>/dev/null; then
