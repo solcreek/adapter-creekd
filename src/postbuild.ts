@@ -54,6 +54,126 @@ async function copyFileIfExists(
   result.copied.push(label);
 }
 
+async function copyNodeModuleIfExists(
+  projectDir: string,
+  serverDir: string,
+  moduleName: string,
+  label: string,
+  result: PostbuildResult,
+): Promise<void> {
+  const sourceModuleDir = path.join(projectDir, "node_modules", moduleName);
+  if (!(await pathExists(sourceModuleDir))) {
+    result.skipped.push(label);
+    return;
+  }
+
+  const sourceDir = await fs.realpath(sourceModuleDir);
+  const targetDir = path.join(serverDir, "node_modules", moduleName);
+
+  await fs.mkdir(path.dirname(targetDir), { recursive: true });
+  await fs.cp(sourceDir, targetDir, {
+    recursive: true,
+    force: false,
+    errorOnExist: false,
+    dereference: true,
+  });
+  result.copied.push(label);
+}
+
+async function copyLinkedPackageRuntime(
+  sourceParentModulesDir: string,
+  targetParentModulesDir: string,
+  moduleName: string,
+): Promise<boolean> {
+  const sourceModulePath = path.join(sourceParentModulesDir, moduleName);
+  if (!(await pathExists(sourceModulePath))) return false;
+
+  const targetModulePath = path.join(targetParentModulesDir, moduleName);
+  const targetLink = await fs.readlink(targetModulePath).catch(() => null);
+  const sourceRuntimeDir = path.dirname(await fs.realpath(sourceModulePath));
+  const targetRuntimeDir = targetLink
+    ? path.dirname(path.resolve(targetParentModulesDir, targetLink))
+    : targetParentModulesDir;
+
+  if (!targetLink && !(await pathExists(targetRuntimeDir))) return false;
+
+  await fs.mkdir(targetRuntimeDir, { recursive: true });
+  await fs.cp(sourceRuntimeDir, targetRuntimeDir, {
+    recursive: true,
+    force: false,
+    errorOnExist: false,
+    dereference: true,
+  });
+  return true;
+}
+
+async function copySharpIfExists(
+  projectDir: string,
+  serverDir: string,
+  result: PostbuildResult,
+): Promise<void> {
+  const sourceNextDir = path.join(projectDir, "node_modules", "next");
+  const targetNextDir = path.join(serverDir, "node_modules", "next");
+  if (await pathExists(sourceNextDir)) {
+    const copiedFromNextRuntime = await copyLinkedPackageRuntime(
+      path.dirname(await fs.realpath(sourceNextDir)),
+      path.dirname(await realpathOrSelf(targetNextDir)),
+      "sharp",
+    );
+    if (copiedFromNextRuntime) {
+      result.copied.push("node_modules/sharp");
+      return;
+    }
+  }
+
+  const sourceNodeModulesDir = path.join(projectDir, "node_modules");
+  const sourceSharpDir = path.join(sourceNodeModulesDir, "sharp");
+  if (!(await pathExists(sourceSharpDir))) {
+    result.skipped.push("node_modules/sharp");
+    return;
+  }
+  await copyNodeModuleIfExists(
+    projectDir,
+    serverDir,
+    "sharp",
+    "node_modules/sharp",
+    result,
+  );
+
+  const packageJsonPath = path.join(sourceSharpDir, "package.json");
+  let packageJson: {
+    dependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
+  } = {};
+  try {
+    packageJson = JSON.parse(await fs.readFile(packageJsonPath, "utf8"));
+  } catch {
+    return;
+  }
+
+  const dependencyNames = [
+    ...Object.keys(packageJson.dependencies ?? {}),
+    ...Object.keys(packageJson.optionalDependencies ?? {}),
+  ];
+
+  for (const dependencyName of dependencyNames) {
+    if (!dependencyName.startsWith("@img/") && dependencyName !== "detect-libc") {
+      continue;
+    }
+    const sourceDependencyDir = path.join(sourceNodeModulesDir, dependencyName);
+    if (!(await pathExists(sourceDependencyDir))) continue;
+    const targetDependencyDir = path.join(serverDir, "node_modules", dependencyName);
+    if (await pathExists(targetDependencyDir)) continue;
+    await fs.mkdir(path.dirname(targetDependencyDir), { recursive: true });
+    await fs.cp(await fs.realpath(sourceDependencyDir), targetDependencyDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: false,
+      dereference: true,
+    });
+  }
+}
+
 async function copyBuildCacheIfExists(
   distDir: string,
   serverDir: string,
@@ -192,6 +312,7 @@ export async function runPostbuild(
   );
   await copyBuildCacheIfExists(distDir, serverDir, result);
   await copyNextRuntimeIfIncomplete(projectDir, serverDir, result);
+  await copySharpIfExists(projectDir, serverDir, result);
   await copyFileIfExists(
     path.join(projectDir, ".solcreek-creekd-cache-handler.mjs"),
     path.join(serverDir, ".solcreek-creekd-cache-handler.mjs"),

@@ -1,5 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -44,6 +44,112 @@ describe("runPostbuild", () => {
     await writeFile(path.join(nextEnvDir, "package.json"), "{}");
   }
 
+  async function writeProjectSharpPnpmModule(): Promise<void> {
+    const storeNodeModules = path.join(
+      projectDir,
+      "node_modules",
+      ".pnpm",
+      "sharp@1.0.0",
+      "node_modules",
+    );
+    const nextStoreNodeModules = path.join(
+      projectDir,
+      "node_modules",
+      ".pnpm",
+      "next@1.0.0",
+      "node_modules",
+    );
+    const standaloneNodeModules = path.join(
+      projectDir,
+      ".next",
+      "standalone",
+      "node_modules",
+    );
+    const standaloneNextStoreNodeModules = path.join(
+      standaloneNodeModules,
+      ".pnpm",
+      "next@1.0.0",
+      "node_modules",
+    );
+    const sourceSharpDir = path.join(storeNodeModules, "sharp");
+    const sourceColourDir = path.join(storeNodeModules, "@img", "colour");
+    const sourcePlatformDir = path.join(storeNodeModules, "@img", "sharp-linux-x64");
+    const sourceLibcDir = path.join(storeNodeModules, "detect-libc");
+    await mkdir(sourceSharpDir, { recursive: true });
+    await mkdir(sourceColourDir, { recursive: true });
+    await mkdir(sourcePlatformDir, { recursive: true });
+    await mkdir(sourceLibcDir, { recursive: true });
+    await mkdir(path.join(nextStoreNodeModules, "next"), { recursive: true });
+    await mkdir(path.join(standaloneNextStoreNodeModules, "next"), {
+      recursive: true,
+    });
+    await mkdir(
+      path.join(standaloneNextStoreNodeModules, "next", "dist", "server"),
+      { recursive: true },
+    );
+    await mkdir(path.join(standaloneNextStoreNodeModules, "@next", "env"), {
+      recursive: true,
+    });
+    await writeFile(path.join(sourceSharpDir, "index.js"), "sharp-runtime");
+    await writeFile(
+      path.join(sourceSharpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@img/colour": "1.0.0",
+          "detect-libc": "2.1.2",
+          semver: "7.7.3",
+        },
+        optionalDependencies: {
+          "@img/sharp-linux-x64": "1.0.0",
+          "@img/sharp-darwin-arm64": "1.0.0",
+        },
+      }),
+    );
+    await writeFile(path.join(sourceColourDir, "index.js"), "colour-runtime");
+    await writeFile(path.join(sourcePlatformDir, "index.js"), "platform-runtime");
+    await writeFile(path.join(sourceLibcDir, "index.js"), "libc-runtime");
+    await writeFile(
+      path.join(standaloneNextStoreNodeModules, "next", "dist", "server", "next.js"),
+      "standalone-next-runtime",
+    );
+    await writeFile(
+      path.join(standaloneNextStoreNodeModules, "@next", "env", "package.json"),
+      "{}",
+    );
+    await symlink(
+      path.relative(path.join(projectDir, "node_modules"), path.join(nextStoreNodeModules, "next")),
+      path.join(projectDir, "node_modules", "next"),
+    );
+    await symlink(
+      "../../sharp@1.0.0/node_modules/sharp",
+      path.join(nextStoreNodeModules, "sharp"),
+    );
+    await symlink(
+      path.relative(standaloneNodeModules, path.join(standaloneNextStoreNodeModules, "next")),
+      path.join(standaloneNodeModules, "next"),
+    );
+    await mkdir(path.join(standaloneNextStoreNodeModules, "sharp"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(standaloneNextStoreNodeModules, "sharp", "index.js"),
+      "traced-sharp-runtime",
+    );
+    await mkdir(path.join(projectDir, "node_modules", "@img"), { recursive: true });
+    await symlink(
+      path.relative(path.join(projectDir, "node_modules", "@img"), sourceColourDir),
+      path.join(projectDir, "node_modules", "@img", "colour"),
+    );
+    await symlink(
+      path.relative(path.join(projectDir, "node_modules", "@img"), sourcePlatformDir),
+      path.join(projectDir, "node_modules", "@img", "sharp-linux-x64"),
+    );
+    await symlink(
+      path.relative(path.join(projectDir, "node_modules"), sourceLibcDir),
+      path.join(projectDir, "node_modules", "detect-libc"),
+    );
+  }
+
   async function writeProjectCacheHandler(contents = "cache-handler"): Promise<void> {
     await writeFile(
       path.join(projectDir, ".solcreek-creekd-cache-handler.mjs"),
@@ -71,6 +177,7 @@ describe("runPostbuild", () => {
     expect(result.skipped).toEqual([
       ".next/cache/creekd",
       "node_modules/next",
+      "node_modules/sharp",
       "cache-handler",
       "use-cache-handler",
     ]);
@@ -98,6 +205,7 @@ describe("runPostbuild", () => {
       ".next/static",
       ".next/cache/creekd",
       "node_modules/next",
+      "node_modules/sharp",
       "cache-handler",
       "use-cache-handler",
     ]);
@@ -160,6 +268,7 @@ describe("runPostbuild", () => {
       ".next/static",
       ".next/cache/creekd",
       "node_modules/next",
+      "node_modules/sharp",
       "use-cache-handler",
     ]);
     expect(readFileSync(
@@ -192,6 +301,7 @@ describe("runPostbuild", () => {
       "public",
       ".next/static",
       ".next/cache/creekd",
+      "node_modules/sharp",
       "cache-handler",
       "use-cache-handler",
     ]);
@@ -226,6 +336,7 @@ describe("runPostbuild", () => {
       "public",
       ".next/static",
       ".next/cache/creekd",
+      "node_modules/sharp",
       "cache-handler",
       "use-cache-handler",
     ]);
@@ -275,11 +386,37 @@ describe("runPostbuild", () => {
       ".next/static",
       ".next/cache/creekd",
       "node_modules/next",
+      "node_modules/sharp",
       "cache-handler",
       "use-cache-handler",
     ]);
     expect(readFileSync(tracedNextFile, "utf8")).toBe("traced-runtime");
     expect(readFileSync(tracedNextEnvFile, "utf8")).toBe("traced-env");
+  });
+
+  it("copies sharp and its pnpm runtime dependencies into standalone output", async () => {
+    await writeStandalone();
+    await writeProjectSharpPnpmModule();
+
+    const result = await runPostbuild({ projectDir });
+
+    expect(result.copied).toEqual(["node_modules/sharp"]);
+    expect(readFileSync(
+      path.join(projectDir, ".next", "standalone", "node_modules", ".pnpm", "next@1.0.0", "node_modules", "sharp", "index.js"),
+      "utf8",
+    )).toBe("traced-sharp-runtime");
+    expect(readFileSync(
+      path.join(projectDir, ".next", "standalone", "node_modules", ".pnpm", "next@1.0.0", "node_modules", "@img", "colour", "index.js"),
+      "utf8",
+    )).toBe("colour-runtime");
+    expect(readFileSync(
+      path.join(projectDir, ".next", "standalone", "node_modules", ".pnpm", "next@1.0.0", "node_modules", "@img", "sharp-linux-x64", "index.js"),
+      "utf8",
+    )).toBe("platform-runtime");
+    expect(readFileSync(
+      path.join(projectDir, ".next", "standalone", "node_modules", ".pnpm", "next@1.0.0", "node_modules", "detect-libc", "index.js"),
+      "utf8",
+    )).toBe("libc-runtime");
   });
 
   it("fails clearly when standalone output has not been generated", async () => {
