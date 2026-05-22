@@ -1,10 +1,10 @@
-import { mkdtemp, rm, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
 
 import CoreCacheHandler from "@solcreek/adapter-core/cache-handler";
+import CreekdCacheHandler from "../dist/cache-handler.js";
 
 const ENTRY_COUNT = Number.parseInt(process.env.CACHE_BENCH_ENTRIES ?? "5000", 10);
 const PAYLOAD_BYTES = Number.parseInt(process.env.CACHE_BENCH_PAYLOAD_BYTES ?? "2048", 10);
@@ -22,79 +22,6 @@ function tagsFor(i) {
   return [`tag:${i % TAG_COUNT}`, "all"];
 }
 
-function hashKey(key) {
-  return createHash("sha256").update(key).digest("hex");
-}
-
-class JsonFileCacheHandler {
-  constructor({ dir }) {
-    this.dir = dir;
-    this.memory = new Map();
-    this.tagInvalidatedAt = new Map();
-  }
-
-  async init() {
-    await mkdir(this.dir, { recursive: true });
-  }
-
-  fileFor(key) {
-    return path.join(this.dir, `${hashKey(key)}.json`);
-  }
-
-  async get(key) {
-    let entry = this.memory.get(key);
-    if (!entry) {
-      try {
-        entry = JSON.parse(await readFile(this.fileFor(key), "utf8"));
-        this.memory.set(key, entry);
-      } catch {
-        return null;
-      }
-    }
-
-    const age = (Date.now() - entry.lastModified) / 1000;
-    const staleByTag = entry.tags.some((tag) => {
-      const invalidatedAt = this.tagInvalidatedAt.get(tag);
-      return invalidatedAt !== undefined && invalidatedAt > entry.lastModified;
-    });
-    const staleByTime =
-      entry.revalidate !== undefined &&
-      entry.revalidate !== false &&
-      (entry.revalidate === 0 || age > entry.revalidate);
-
-    return {
-      value: entry.value,
-      lastModified: entry.lastModified,
-      age: Math.floor(age),
-      cacheState: staleByTag || staleByTime ? "stale" : "fresh",
-    };
-  }
-
-  async set(key, data, ctx = {}) {
-    if (data === null) {
-      this.memory.delete(key);
-      return;
-    }
-    const entry = {
-      value: data,
-      lastModified: Date.now(),
-      tags: ctx.tags ?? [],
-      revalidate: typeof ctx.revalidate === "number" ? ctx.revalidate : undefined,
-    };
-    this.memory.set(key, entry);
-    await writeFile(this.fileFor(key), JSON.stringify(entry), "utf8");
-  }
-
-  async revalidateTag(tag) {
-    const now = Date.now();
-    for (const item of Array.isArray(tag) ? tag : [tag]) {
-      this.tagInvalidatedAt.set(item, now);
-    }
-  }
-
-  resetRequestCache() {}
-}
-
 async function time(name, fn) {
   const start = performance.now();
   await fn();
@@ -102,7 +29,7 @@ async function time(name, fn) {
   return { name, ms };
 }
 
-async function runCandidate(name, makeHandler) {
+async function runCandidate(name, makeHandler, makeColdHandler) {
   const handler = await makeHandler();
   const keys = Array.from({ length: ENTRY_COUNT }, (_, i) => `key:${i}`);
   const timings = [];
@@ -124,6 +51,18 @@ async function runCandidate(name, makeHandler) {
       }
     }
   }));
+
+  if (makeColdHandler) {
+    const coldHandler = await makeColdHandler();
+    timings.push(await time("get-cold", async () => {
+      for (const key of keys) {
+        const got = await coldHandler.get(key);
+        if (!got || got.cacheState !== "fresh") {
+          throw new Error(`${name}: expected fresh cold cache hit for ${key}`);
+        }
+      }
+    }));
+  }
 
   timings.push(await time("revalidateTag", async () => {
     await handler.revalidateTag("tag:0");
@@ -157,22 +96,35 @@ function printResult(result) {
 }
 
 const tmp = await mkdtemp(path.join(tmpdir(), "adapter-creekd-cache-bench-"));
+const oldCacheDir = process.env.CREEK_NEXT_CACHE_DIR;
+const oldL1Entries = process.env.CREEK_NEXT_CACHE_L1_ENTRIES;
 try {
   console.log(
     `cache benchmark: entries=${ENTRY_COUNT} payloadBytes=${PAYLOAD_BYTES} tags=${TAG_COUNT}`,
   );
   const results = [
     await runCandidate("adapter-core in-memory", async () => new CoreCacheHandler()),
-    await runCandidate("json-file prototype (L1 memory + L2 disk)", async () => {
-      const handler = new JsonFileCacheHandler({ dir: path.join(tmp, "json") });
-      await handler.init();
-      return handler;
+    await runCandidate("adapter-creekd filesystem L1+L2", async () => {
+      process.env.CREEK_NEXT_CACHE_DIR = path.join(tmp, "creekd");
+      process.env.CREEK_NEXT_CACHE_L1_ENTRIES = String(ENTRY_COUNT);
+      return new CreekdCacheHandler();
+    }, async () => {
+      process.env.CREEK_NEXT_CACHE_DIR = path.join(tmp, "creekd");
+      process.env.CREEK_NEXT_CACHE_L1_ENTRIES = String(ENTRY_COUNT);
+      return new CreekdCacheHandler();
     }),
   ];
   for (const result of results) printResult(result);
-  console.log(
-    "\nNote: json-file prototype is a benchmark foil, not the production adapter-creekd cache design.",
-  );
 } finally {
+  if (oldCacheDir === undefined) {
+    delete process.env.CREEK_NEXT_CACHE_DIR;
+  } else {
+    process.env.CREEK_NEXT_CACHE_DIR = oldCacheDir;
+  }
+  if (oldL1Entries === undefined) {
+    delete process.env.CREEK_NEXT_CACHE_L1_ENTRIES;
+  } else {
+    process.env.CREEK_NEXT_CACHE_L1_ENTRIES = oldL1Entries;
+  }
   await rm(tmp, { recursive: true, force: true });
 }

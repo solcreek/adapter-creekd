@@ -88,6 +88,19 @@ const config: NextConfig = {
 
 `creekd` itself supports Bun, Node, and Deno as generic process runtimes. This Next.js adapter currently exposes Bun and Node because Next.js standalone output is a Node-compatible server bundle.
 
+## Cache
+
+Production builds use adapter-creekd's Next.js cache handler:
+
+- L1: process-local memory for hot entries.
+- L2: filesystem persistence for ISR, fetch cache, and `'use cache'` data.
+- Tag invalidation state is persisted, so `revalidateTag()` survives process restart.
+
+By default, the cache lives under Next's server dist tree at `.next/cache/creekd`.
+Set `CREEK_NEXT_CACHE_DIR=/path/to/cache` to place it on a creekd volume or another
+durable local disk path. Set `CREEK_NEXT_CACHE_L1_ENTRIES=0` to disable the L1
+memory layer, or set it to a positive integer to cap hot entries.
+
 ## How it compares
 
 - **vs Vercel Functions**: zero cold start (process always warm), Bun runtime is faster than the Node.js Functions runtime, you own the hardware and the pricing curve.

@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync } from "node:fs";
 import type { NextAdapter } from "next";
 
 import { applyBaseModifyConfig } from "@solcreek/adapter-core";
@@ -42,23 +42,42 @@ export interface CreekdAdapterOptions {
   healthCheckPath?: string;
 }
 
-// Dev-fallback path to the cache handler shipped by adapter-core.
-// applyBaseModifyConfig prefers the node_modules-installed copy when
-// one exists.
-const coreEntryUrl = new URL(
-  "../node_modules/@solcreek/adapter-core/dist/cache-handler.js",
-  import.meta.url,
-);
-const fallbackCacheHandlerPath = existsSync(fileURLToPath(coreEntryUrl))
-  ? fileURLToPath(coreEntryUrl)
-  : path.join(
-      process.cwd(),
-      "node_modules",
-      "@solcreek",
-      "adapter-core",
-      "dist",
-      "cache-handler.js",
+// Dev/prod path to the cache handler shipped by this adapter. The dist
+// path is the production case; the extra fallback keeps source-level
+// tests and local development usable before a build has populated dist.
+const ownCacheHandlerPath = [
+  new URL("./cache-handler.js", import.meta.url),
+  new URL("../dist/cache-handler.js", import.meta.url),
+]
+  .map((url) => fileURLToPath(url))
+  .find((candidate) => existsSync(candidate)) ??
+  path.join(
+    process.cwd(),
+    "node_modules",
+    "@solcreek",
+    "adapter-creekd",
+    "dist",
+    "cache-handler.js",
+  );
+
+function mirrorCacheHandlerIntoProject(cacheHandlerPath: string): string {
+  if (!existsSync(cacheHandlerPath)) return cacheHandlerPath;
+
+  const localPath = path.join(process.cwd(), ".solcreek-creekd-cache-handler.mjs");
+  if (path.resolve(cacheHandlerPath) === path.resolve(localPath)) return localPath;
+
+  try {
+    copyFileSync(cacheHandlerPath, localPath);
+    return localPath;
+  } catch (err) {
+    console.warn(
+      `  [Creekd Adapter] Failed to mirror cache-handler into project (${
+        err instanceof Error ? err.message : String(err)
+      }); falling back to ${cacheHandlerPath}`,
     );
+    return cacheHandlerPath;
+  }
+}
 
 /**
  * Construct a NextAdapter targeting creekd self-host. Call from a
@@ -96,7 +115,7 @@ export function createCreekdAdapter(
       // monorepo tracing root, TS error suppression, cache handler.
       const baseConfig = applyBaseModifyConfig(config, ctx, {
         logLabel: "Creekd Adapter",
-        cacheHandlerPath: fallbackCacheHandlerPath,
+        cacheHandlerPath: ownCacheHandlerPath,
       });
 
       // Production builds only; dev/lint phases pass through.
@@ -107,6 +126,10 @@ export function createCreekdAdapter(
       // remember the next.config.output knob.
       return {
         ...baseConfig,
+        // Override adapter-core's portable in-memory default with the
+        // creekd-specific L1 + filesystem-L2 handler. The mirrored local
+        // path avoids Turbopack path-safety issues with pnpm realpaths.
+        cacheHandler: mirrorCacheHandlerIntoProject(ownCacheHandlerPath),
         output: "standalone",
       };
     },

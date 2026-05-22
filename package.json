@@ -26,7 +26,7 @@
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "bench:cache": "node scripts/bench-cache.mjs",
+    "bench:cache": "pnpm build && node scripts/bench-cache.mjs",
     "test:watch": "vitest",
     "clean": "rm -rf dist"
   },

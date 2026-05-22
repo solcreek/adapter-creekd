@@ -100,7 +100,6 @@ Run the current microbenchmark harness with:
 pnpm bench:cache
 ```
 
-The harness compares the current in-memory baseline with a simple
-JSON-file prototype. The JSON-file candidate exists only as a benchmark
-foil; the production direction is a hybrid L1 memory + durable local
-store.
+The harness builds the package, then compares the adapter-core in-memory
+baseline with adapter-creekd's production L1 memory + filesystem L2 cache
+handler.
