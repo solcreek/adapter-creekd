@@ -30,9 +30,11 @@ ensure_pnpm_build_policy() {
   node -e "
 const fs = require('fs');
 const file = 'pnpm-workspace.yaml';
-const allowBlock = 'allowBuilds:\\n  core-js: true\\n  protobufjs: true\\n  sharp: true\\n';
+const allowBlock = 'allowBuilds:\\n  core-js: true\\n  node-pty: true\\n  protobufjs: true\\n  sharp: true\\n  sqlite3: true\\n';
 let text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
-text = text.replace(/^allowBuilds:\\n(?:[ \\t].*(?:\\n|$))*/m, '');
+for (const key of ['allowBuilds', 'ignoredBuiltDependencies', 'neverBuiltDependencies', 'onlyBuiltDependencies']) {
+  text = text.replace(new RegExp('^' + key + ':\\\\n(?:[ \\\\t].*(?:\\\\n|$))*', 'm'), '');
+}
 text = allowBlock + text.replace(/^\\n+/, '');
 if (!text.endsWith('\\n')) text += '\\n';
 fs.writeFileSync(file, text);
@@ -67,7 +69,7 @@ if [[ "${PKG_MANAGER}" == npm@* ]]; then
   npm install --legacy-peer-deps --cache "${NPM_CACHE_DIR}" --prefer-offline --no-audit --no-fund >&2 2>&1
 else
   ensure_pnpm_build_policy
-  pnpm install --store-dir "${PNPM_STORE_DIR}" --no-frozen-lockfile --prefer-offline --config.dangerouslyAllowAllBuilds=true >&2 2>&1
+  pnpm install --store-dir "${PNPM_STORE_DIR}" --no-frozen-lockfile --prefer-offline >&2 2>&1
 fi
 log "package install complete"
 
