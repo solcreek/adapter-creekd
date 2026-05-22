@@ -89,6 +89,11 @@ function env(name: string): string | undefined {
     .process?.env?.[name];
 }
 
+function debug(...args: unknown[]): void {
+  if (!env("NEXT_PRIVATE_DEBUG_CACHE") && !env("CREEK_DEBUG_CACHE")) return;
+  console.debug("[adapter-creekd cache]", ...args);
+}
+
 function cwd(): string {
   return (
     globalThis as { process?: { cwd?: () => string } }
@@ -269,7 +274,10 @@ export default class CreekdCacheHandler {
   async get(key: string, ctx?: GetCacheContext) {
     await this.ready;
     const entry = await this.readEntry(key, ctx);
-    if (!entry) return null;
+    if (!entry) {
+      debug("get", key, "miss", ctx);
+      return null;
+    }
 
     const age = (nowMs() - entry.lastModified) / 1000;
     const staleByTag = this.isStaleByTags(entry);
@@ -278,12 +286,24 @@ export default class CreekdCacheHandler {
       entry.revalidate !== false &&
       (entry.revalidate === 0 || age > entry.revalidate);
 
-    return {
+    const result = {
       value: entry.value,
       lastModified: entry.lastModified,
       age: Math.floor(age),
       cacheState: staleByTag || staleByTime ? "stale" as const : "fresh" as const,
     };
+    debug("get", key, result.cacheState, {
+      kind: ctx?.kind,
+      isFallback: ctx?.isFallback,
+      isRoutePPREnabled: ctx?.isRoutePPREnabled,
+      valueKind: (entry.value as { kind?: unknown } | undefined)?.kind,
+      hasPostponed: Boolean((entry.value as { postponed?: unknown } | undefined)?.postponed),
+      segmentCount: (entry.value as { segmentData?: Map<unknown, unknown> } | undefined)
+        ?.segmentData?.size,
+      tags: entry.tags,
+      revalidate: entry.revalidate,
+    });
+    return result;
   }
 
   async set(
@@ -310,6 +330,14 @@ export default class CreekdCacheHandler {
     };
 
     this.setL1(key, entry);
+    debug("set", key, {
+      valueKind: (data as { kind?: unknown } | undefined)?.kind,
+      hasPostponed: Boolean((data as { postponed?: unknown } | undefined)?.postponed),
+      segmentCount: (data as { segmentData?: Map<unknown, unknown> } | undefined)
+        ?.segmentData?.size,
+      tags: entry.tags,
+      revalidate: entry.revalidate,
+    });
     if (!this.node) return;
 
     const stored: StoredEntry = { schema: 1, ...entry };
@@ -371,6 +399,7 @@ export default class CreekdCacheHandler {
     const cached = this.l1.get(key);
     if (cached) {
       this.setL1(key, cached);
+      debug("read", key, "memory-hit");
       return cached;
     }
     if (!this.node) return null;
@@ -389,6 +418,7 @@ export default class CreekdCacheHandler {
         revalidate: typeof stored.revalidate === "number" ? stored.revalidate : undefined,
       };
       this.setL1(key, entry);
+      debug("read", key, "disk-hit");
       return entry;
     } catch {
       return await this.readBuildSeedEntry(key, ctx);
@@ -410,7 +440,19 @@ export default class CreekdCacheHandler {
       entry = await this.readPagesSeed(key, ctx);
     }
 
-    if (entry) this.setL1(key, entry);
+    if (entry) {
+      this.setL1(key, entry);
+      debug("read", key, "seed-hit", {
+        kind: ctx.kind,
+        valueKind: (entry.value as { kind?: unknown } | undefined)?.kind,
+        hasPostponed: Boolean((entry.value as { postponed?: unknown } | undefined)?.postponed),
+        segmentCount: (entry.value as { segmentData?: Map<unknown, unknown> } | undefined)
+          ?.segmentData?.size,
+        tags: entry.tags,
+      });
+    } else {
+      debug("read", key, "seed-miss", ctx);
+    }
     return entry;
   }
 
@@ -459,15 +501,23 @@ export default class CreekdCacheHandler {
       const lastModified = stat.mtime.getTime();
       const segmentData = await this.readSegmentData(key, meta);
       let rscData: unknown;
-
-      if (
-        !ctx.isFallback &&
-        (!ctx.isRoutePPREnabled || meta?.postponed == null)
-      ) {
+      if (!ctx.isFallback) {
         try {
           rscData = await this.node.fs.readFile(this.appPath(`${key}${RSC_SUFFIX}`));
         } catch {
           rscData = undefined;
+        }
+
+        if (!rscData && ctx.isRoutePPREnabled && meta?.postponed != null) {
+          try {
+            rscData = await this.node.fs.readFile(
+              this.appPath(
+                `${key}${RSC_SEGMENTS_DIR_SUFFIX}/_full${RSC_SEGMENT_SUFFIX}`,
+              ),
+            );
+          } catch {
+            rscData = undefined;
+          }
         }
       }
 

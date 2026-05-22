@@ -196,6 +196,10 @@ describe("CreekdCacheHandler", () => {
       path.join(appDir, "🎉.segments", "$d$slug", "__PAGE__.segment.rsc"),
       Buffer.from("segment"),
     );
+    await writeFile(
+      path.join(appDir, "🎉.segments", "_full.segment.rsc"),
+      Buffer.from("full-rsc"),
+    );
 
     const cache = new CacheHandler({ serverDistDir });
     const hit = await cache.get("/🎉", {
@@ -216,7 +220,7 @@ describe("CreekdCacheHandler", () => {
     expect(hit?.cacheState).toBe("fresh");
     expect(value.kind).toBe("APP_PAGE");
     expect(value.html).toBe("<main>party</main>");
-    expect(value.rscData).toBeUndefined();
+    expect(value.rscData).toEqual(Buffer.from("full-rsc"));
     expect(value.postponed).toBe("resume-data");
     expect(value.status).toBe(200);
     expect(value.headers?.["x-next-cache-tags"]).toContain("%F0%9F%8E%82");

@@ -187,12 +187,19 @@ async function copyBuildCacheIfExists(
   );
 }
 
+function isDynamicArtifactPath(filePath: string): boolean {
+  return filePath.split(path.sep).some((segment) =>
+    segment.includes("[") || segment.includes("]")
+  );
+}
+
 async function normalizePrerenderManifestForStandalone(filePath: string): Promise<void> {
   if (!(await pathExists(filePath))) return;
 
   const manifest = JSON.parse(await fs.readFile(filePath, "utf8")) as {
     dynamicRoutes?: Record<string, {
       fallback?: unknown;
+      fallbackRouteParams?: unknown;
       renderingMode?: unknown;
       remainingPrerenderableParams?: unknown;
     }>;
@@ -202,12 +209,22 @@ async function normalizePrerenderManifestForStandalone(filePath: string): Promis
   for (const route of Object.values(manifest.dynamicRoutes ?? {})) {
     if (
       route?.renderingMode === "PARTIALLY_STATIC" &&
-      route.fallback === null &&
-      Array.isArray(route.remainingPrerenderableParams) &&
-      route.remainingPrerenderableParams.length > 0
+      route.fallback === null
     ) {
-      route.remainingPrerenderableParams = [];
-      changed = true;
+      if (
+        Array.isArray(route.remainingPrerenderableParams) &&
+        route.remainingPrerenderableParams.length > 0
+      ) {
+        route.remainingPrerenderableParams = [];
+        changed = true;
+      }
+      if (
+        Array.isArray(route.fallbackRouteParams) &&
+        route.fallbackRouteParams.length > 0
+      ) {
+        route.fallbackRouteParams = [];
+        changed = true;
+      }
     }
   }
 
@@ -232,6 +249,61 @@ async function normalizePrerenderManifests(
       normalizePrerenderManifestForStandalone(filePath)
     ),
   );
+}
+
+async function materializeConcretePprRscDataRoutesInAppDir(
+  appDir: string,
+): Promise<number> {
+  let copied = 0;
+
+  async function visit(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await visit(entryPath);
+        continue;
+      }
+      if (!entry.isFile() || entry.name !== "_full.segment.rsc") continue;
+
+      const segmentsDir = path.dirname(entryPath);
+      if (!segmentsDir.endsWith(".segments")) continue;
+      const rscPath = `${segmentsDir.slice(0, -".segments".length)}.rsc`;
+      if (isDynamicArtifactPath(path.relative(appDir, rscPath))) continue;
+      if (await pathExists(rscPath)) continue;
+      await fs.copyFile(entryPath, rscPath);
+      copied += 1;
+    }
+  }
+
+  await visit(appDir);
+  return copied;
+}
+
+async function materializeConcretePprRscDataRoutes(
+  distDir: string,
+  standaloneDir: string,
+  serverDir: string,
+  result: PostbuildResult,
+): Promise<void> {
+  const appDirs = new Set([
+    path.join(distDir, "server", "app"),
+    path.join(standaloneDir, ".next", "server", "app"),
+    path.join(serverDir, ".next", "server", "app"),
+  ]);
+  let copied = 0;
+
+  for (const appDir of appDirs) {
+    copied += await materializeConcretePprRscDataRoutesInAppDir(appDir);
+  }
+
+  if (copied > 0) result.copied.push("ppr-rsc-data");
 }
 
 async function realpathOrSelf(filePath: string): Promise<string> {
@@ -358,6 +430,12 @@ export async function runPostbuild(
     result,
   );
   await normalizePrerenderManifests(distDir, standaloneDir, serverDir);
+  await materializeConcretePprRscDataRoutes(
+    distDir,
+    standaloneDir,
+    serverDir,
+    result,
+  );
   await copyBuildCacheIfExists(distDir, serverDir, result);
   await copyNextRuntimeIfIncomplete(projectDir, serverDir, result);
   await copySharpIfExists(projectDir, serverDir, result);

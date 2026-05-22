@@ -264,11 +264,19 @@ describe("runPostbuild", () => {
       dynamicRoutes: {
         "/blocking/[slug]": {
           fallback: null,
+          fallbackRouteParams: [{ paramName: "slug", paramType: "dynamic" }],
+          renderingMode: "PARTIALLY_STATIC",
+          remainingPrerenderableParams: [{ paramName: "slug", paramType: "dynamic" }],
+        },
+        "/with-postponed/[slug]": {
+          fallback: null,
+          fallbackRouteParams: [{ paramName: "slug", paramType: "dynamic" }],
           renderingMode: "PARTIALLY_STATIC",
           remainingPrerenderableParams: [{ paramName: "slug", paramType: "dynamic" }],
         },
         "/fallback/[slug]": {
           fallback: "/fallback/[slug]",
+          fallbackRouteParams: [{ paramName: "slug", paramType: "dynamic" }],
           renderingMode: "PARTIALLY_STATIC",
           remainingPrerenderableParams: [{ paramName: "slug", paramType: "dynamic" }],
         },
@@ -295,9 +303,87 @@ describe("runPostbuild", () => {
         patched.dynamicRoutes["/blocking/[slug]"].remainingPrerenderableParams,
       ).toEqual([]);
       expect(
+        patched.dynamicRoutes["/blocking/[slug]"].fallbackRouteParams,
+      ).toEqual([]);
+      expect(
+        patched.dynamicRoutes["/with-postponed/[slug]"].remainingPrerenderableParams,
+      ).toEqual([]);
+      expect(
+        patched.dynamicRoutes["/with-postponed/[slug]"].fallbackRouteParams,
+      ).toEqual([]);
+      expect(
         patched.dynamicRoutes["/fallback/[slug]"].remainingPrerenderableParams,
       ).toEqual([{ paramName: "slug", paramType: "dynamic" }]);
+      expect(
+        patched.dynamicRoutes["/fallback/[slug]"].fallbackRouteParams,
+      ).toEqual([{ paramName: "slug", paramType: "dynamic" }]);
     }
+  });
+
+  it("materializes concrete PPR _full segment RSC data routes", async () => {
+    await writeStandalone();
+    const concreteSegmentsDir = path.join(
+      projectDir,
+      ".next",
+      "server",
+      "app",
+      "prerendered",
+      "server.segments",
+    );
+    const dynamicSegmentsDir = path.join(
+      projectDir,
+      ".next",
+      "server",
+      "app",
+      "[slug]",
+      "server.segments",
+    );
+    const standaloneConcreteSegmentsDir = path.join(
+      projectDir,
+      ".next",
+      "standalone",
+      ".next",
+      "server",
+      "app",
+      "prerendered",
+      "server.segments",
+    );
+    await mkdir(concreteSegmentsDir, { recursive: true });
+    await mkdir(dynamicSegmentsDir, { recursive: true });
+    await mkdir(standaloneConcreteSegmentsDir, { recursive: true });
+    await writeFile(path.join(concreteSegmentsDir, "_full.segment.rsc"), "full");
+    await writeFile(path.join(dynamicSegmentsDir, "_full.segment.rsc"), "dynamic");
+    await writeFile(
+      path.join(standaloneConcreteSegmentsDir, "_full.segment.rsc"),
+      "standalone-full",
+    );
+
+    const result = await runPostbuild({ projectDir });
+
+    expect(result.copied).toEqual(["ppr-rsc-data"]);
+    expect(readFileSync(
+      path.join(projectDir, ".next", "server", "app", "prerendered", "server.rsc"),
+      "utf8",
+    )).toBe("full");
+    expect(readFileSync(
+      path.join(
+        projectDir,
+        ".next",
+        "standalone",
+        ".next",
+        "server",
+        "app",
+        "prerendered",
+        "server.rsc",
+      ),
+      "utf8",
+    )).toBe("standalone-full");
+    expect(() =>
+      readFileSync(
+        path.join(projectDir, ".next", "server", "app", "[slug]", "server.rsc"),
+        "utf8",
+      )
+    ).toThrow();
   });
 
   it("copies the mirrored creekd cache handler into standalone output", async () => {
