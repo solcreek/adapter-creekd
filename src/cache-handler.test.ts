@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -150,6 +150,87 @@ describe("CreekdCacheHandler", () => {
     expect((value.segmentData as Map<string, Buffer>).get("/dynamic")).toEqual(
       Buffer.from("segment"),
     );
+  });
+
+  it("reads build-seeded app page artifacts from serverDistDir", async () => {
+    const serverDistDir = path.join(cacheDir, ".next", "server");
+    const appDir = path.join(serverDistDir, "app");
+    await mkdir(path.join(appDir, "🎉.segments", "$d$slug"), {
+      recursive: true,
+    });
+    await writeFile(path.join(appDir, "🎉.html"), "<main>party</main>");
+    await writeFile(
+      path.join(appDir, "🎉.meta"),
+      JSON.stringify({
+        headers: {
+          "x-next-cache-tags": "_N_T_/%F0%9F%8E%89,%F0%9F%8E%82",
+        },
+        status: 200,
+        postponed: "resume-data",
+        segmentPaths: ["/$d$slug/__PAGE__"],
+      }),
+    );
+    await writeFile(
+      path.join(appDir, "🎉.segments", "$d$slug", "__PAGE__.segment.rsc"),
+      Buffer.from("segment"),
+    );
+
+    const cache = new CacheHandler({ serverDistDir });
+    const hit = await cache.get("/🎉", {
+      kind: "APP_PAGE",
+      isFallback: false,
+      isRoutePPREnabled: true,
+    });
+    const value = hit?.value as {
+      kind?: string;
+      html?: unknown;
+      rscData?: unknown;
+      postponed?: unknown;
+      headers?: Record<string, string>;
+      status?: unknown;
+      segmentData?: unknown;
+    };
+
+    expect(hit?.cacheState).toBe("fresh");
+    expect(value.kind).toBe("APP_PAGE");
+    expect(value.html).toBe("<main>party</main>");
+    expect(value.rscData).toBeUndefined();
+    expect(value.postponed).toBe("resume-data");
+    expect(value.status).toBe(200);
+    expect(value.headers?.["x-next-cache-tags"]).toContain("%F0%9F%8E%82");
+    expect(value.segmentData).toBeInstanceOf(Map);
+    expect(
+      (value.segmentData as Map<string, Buffer>).get("/$d$slug/__PAGE__"),
+    ).toEqual(Buffer.from("segment"));
+  });
+
+  it("reads build-seeded app route artifacts from serverDistDir", async () => {
+    const serverDistDir = path.join(cacheDir, ".next", "server");
+    const appDir = path.join(serverDistDir, "app", "api");
+    await mkdir(appDir, { recursive: true });
+    await writeFile(path.join(appDir, "hello.body"), Buffer.from("ok"));
+    await writeFile(
+      path.join(appDir, "hello.meta"),
+      JSON.stringify({
+        headers: { "content-type": "text/plain" },
+        status: 201,
+      }),
+    );
+
+    const cache = new CacheHandler({ serverDistDir });
+    const hit = await cache.get("/api/hello", { kind: "APP_ROUTE" });
+    const value = hit?.value as {
+      kind?: string;
+      body?: unknown;
+      headers?: Record<string, string>;
+      status?: unknown;
+    };
+
+    expect(hit?.cacheState).toBe("fresh");
+    expect(value.kind).toBe("APP_ROUTE");
+    expect(value.body).toEqual(Buffer.from("ok"));
+    expect(value.headers?.["content-type"]).toBe("text/plain");
+    expect(value.status).toBe(201);
   });
 
   it("derives the default cache root from serverDistDir", async () => {

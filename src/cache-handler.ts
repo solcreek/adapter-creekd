@@ -24,7 +24,26 @@ interface TagState {
   expired?: number;
 }
 
+interface RouteMetadata {
+  headers?: Record<string, string | string[] | undefined>;
+  status?: number;
+  postponed?: string;
+  segmentPaths?: string[];
+}
+
+interface GetCacheContext {
+  kind?: string;
+  isFallback?: boolean;
+  isRoutePPREnabled?: boolean;
+}
+
 const DEFAULT_L1_ENTRIES = 2048;
+const NEXT_CACHE_TAGS_HEADER = "x-next-cache-tags";
+const NEXT_DATA_SUFFIX = ".json";
+const NEXT_META_SUFFIX = ".meta";
+const RSC_SUFFIX = ".rsc";
+const RSC_SEGMENT_SUFFIX = ".segment.rsc";
+const RSC_SEGMENTS_DIR_SUFFIX = ".segments";
 let lastClock = 0;
 
 function hashKey(key: string): string {
@@ -204,6 +223,22 @@ function replace(_key: string, value: unknown): unknown {
   return value;
 }
 
+function tagsFromMeta(meta: RouteMetadata | undefined): string[] {
+  const headers = meta?.headers;
+  if (!headers) return [];
+
+  const tagsHeader = Object.entries(headers).find(
+    ([name]) => name.toLowerCase() === NEXT_CACHE_TAGS_HEADER,
+  )?.[1];
+  if (typeof tagsHeader === "string") {
+    return tagsHeader.split(",").filter(Boolean);
+  }
+  if (Array.isArray(tagsHeader)) {
+    return tagsHeader.flatMap((item) => item.split(",")).filter(Boolean);
+  }
+  return [];
+}
+
 export default class CreekdCacheHandler {
   private readonly l1MaxEntries: number;
   private readonly l1 = new Map<string, CacheEntry>();
@@ -213,6 +248,7 @@ export default class CreekdCacheHandler {
   private rootDir = "";
   private entriesDir = "";
   private tagsPath = "";
+  private serverDistDir = "";
   private nextTagsManifest: Map<string, TagState> | undefined;
 
   constructor(ctx?: CacheHandlerContext) {
@@ -220,9 +256,9 @@ export default class CreekdCacheHandler {
     this.ready = this.init(ctx);
   }
 
-  async get(key: string, _ctx?: { kind?: string }) {
+  async get(key: string, ctx?: GetCacheContext) {
     await this.ready;
-    const entry = await this.readEntry(key);
+    const entry = await this.readEntry(key, ctx);
     if (!entry) return null;
 
     const age = (Date.now() - entry.lastModified) / 1000;
@@ -303,6 +339,9 @@ export default class CreekdCacheHandler {
     this.rootDir = cacheRootFrom(this.node, ctx);
     this.entriesDir = this.node.path.join(this.rootDir, "entries");
     this.tagsPath = this.node.path.join(this.rootDir, "tags.json");
+    this.serverDistDir = ctx?.serverDistDir
+      ? this.node.path.resolve(ctx.serverDistDir)
+      : "";
 
     await this.node.fs.mkdir(this.entriesDir, { recursive: true });
     await this.loadTags();
@@ -315,7 +354,10 @@ export default class CreekdCacheHandler {
     return this.node.path.join(this.entriesDir, `${hashKey(key)}.json`);
   }
 
-  private async readEntry(key: string): Promise<CacheEntry | null> {
+  private async readEntry(
+    key: string,
+    ctx?: GetCacheContext,
+  ): Promise<CacheEntry | null> {
     const cached = this.l1.get(key);
     if (cached) {
       this.setL1(key, cached);
@@ -339,8 +381,198 @@ export default class CreekdCacheHandler {
       this.setL1(key, entry);
       return entry;
     } catch {
+      return await this.readBuildSeedEntry(key, ctx);
+    }
+  }
+
+  private async readBuildSeedEntry(
+    key: string,
+    ctx?: GetCacheContext,
+  ): Promise<CacheEntry | null> {
+    if (!this.node || !this.serverDistDir || !ctx?.kind) return null;
+
+    let entry: CacheEntry | null = null;
+    if (ctx.kind === "APP_PAGE") {
+      entry = await this.readAppPageSeed(key, ctx);
+    } else if (ctx.kind === "APP_ROUTE") {
+      entry = await this.readAppRouteSeed(key);
+    } else if (ctx.kind === "PAGES") {
+      entry = await this.readPagesSeed(key, ctx);
+    }
+
+    if (entry) this.setL1(key, entry);
+    return entry;
+  }
+
+  private async readAppRouteSeed(key: string): Promise<CacheEntry | null> {
+    if (!this.node) return null;
+
+    try {
+      const bodyPath = this.appPath(`${key}.body`);
+      const [body, stat, meta] = await Promise.all([
+        this.node.fs.readFile(bodyPath),
+        this.node.fs.stat(bodyPath),
+        this.readRouteMeta(bodyPath.replace(/\.body$/, NEXT_META_SUFFIX)),
+      ]);
+      const lastModified = stat.mtime.getTime();
+      const entry = {
+        value: {
+          kind: "APP_ROUTE",
+          body,
+          headers: meta?.headers,
+          status: meta?.status,
+        },
+        lastModified,
+        clock: lastModified,
+        tags: tagsFromMeta(meta),
+      };
+      rememberClock(entry.clock);
+      return entry;
+    } catch {
       return null;
     }
+  }
+
+  private async readAppPageSeed(
+    key: string,
+    ctx: GetCacheContext,
+  ): Promise<CacheEntry | null> {
+    if (!this.node) return null;
+
+    try {
+      const htmlPath = this.appPath(`${key}.html`);
+      const [html, stat, meta] = await Promise.all([
+        this.node.fs.readFile(htmlPath, "utf8"),
+        this.node.fs.stat(htmlPath),
+        this.readRouteMeta(htmlPath.replace(/\.html$/, NEXT_META_SUFFIX)),
+      ]);
+      const lastModified = stat.mtime.getTime();
+      const segmentData = await this.readSegmentData(key, meta);
+      let rscData: unknown;
+
+      if (
+        !ctx.isFallback &&
+        (!ctx.isRoutePPREnabled || meta?.postponed == null)
+      ) {
+        try {
+          rscData = await this.node.fs.readFile(this.appPath(`${key}${RSC_SUFFIX}`));
+        } catch {
+          rscData = undefined;
+        }
+      }
+
+      const entry = {
+        value: {
+          kind: "APP_PAGE",
+          html,
+          rscData,
+          postponed: meta?.postponed,
+          headers: meta?.headers,
+          status: meta?.status,
+          segmentData,
+        },
+        lastModified,
+        clock: lastModified,
+        tags: tagsFromMeta(meta),
+      };
+      rememberClock(entry.clock);
+      return entry;
+    } catch {
+      return null;
+    }
+  }
+
+  private async readPagesSeed(
+    key: string,
+    ctx: GetCacheContext,
+  ): Promise<CacheEntry | null> {
+    if (!this.node) return null;
+
+    try {
+      const htmlPath = this.pagesPath(`${key}.html`);
+      const [html, stat, meta] = await Promise.all([
+        this.node.fs.readFile(htmlPath, "utf8"),
+        this.node.fs.stat(htmlPath),
+        this.readRouteMeta(htmlPath.replace(/\.html$/, NEXT_META_SUFFIX)),
+      ]);
+      let pageData: unknown = {};
+      if (!ctx.isFallback) {
+        pageData = JSON.parse(
+          await this.node.fs.readFile(
+            this.pagesPath(`${key}${NEXT_DATA_SUFFIX}`),
+            "utf8",
+          ),
+        );
+      }
+
+      const entry = {
+        value: {
+          kind: "PAGES",
+          html,
+          pageData,
+          headers: meta?.headers,
+          status: meta?.status,
+        },
+        lastModified: stat.mtime.getTime(),
+        clock: stat.mtime.getTime(),
+        tags: tagsFromMeta(meta),
+      };
+      rememberClock(entry.clock);
+      return entry;
+    } catch {
+      return null;
+    }
+  }
+
+  private async readSegmentData(
+    key: string,
+    meta: RouteMetadata | undefined,
+  ): Promise<Map<string, Buffer> | undefined> {
+    if (!this.node || !meta?.segmentPaths) return undefined;
+
+    const segmentData = new Map<string, Buffer>();
+    const segmentsDir = key + RSC_SEGMENTS_DIR_SUFFIX;
+    await Promise.all(
+      meta.segmentPaths.map(async (segmentPath) => {
+        try {
+          segmentData.set(
+            segmentPath,
+            await this.node!.fs.readFile(
+              this.appPath(`${segmentsDir}${segmentPath}${RSC_SEGMENT_SUFFIX}`),
+            ),
+          );
+        } catch {
+          // Missing segments are treated the same way Next does: dynamic.
+        }
+      }),
+    );
+    return segmentData;
+  }
+
+  private async readRouteMeta(metaPath: string): Promise<RouteMetadata | undefined> {
+    if (!this.node) return undefined;
+
+    try {
+      return JSON.parse(
+        await this.node.fs.readFile(metaPath, "utf8"),
+      ) as RouteMetadata;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private appPath(pathname: string): string {
+    if (!this.node) {
+      throw new Error("adapter-creekd cache filesystem is unavailable");
+    }
+    return this.node.path.join(this.serverDistDir, "app", pathname);
+  }
+
+  private pagesPath(pathname: string): string {
+    if (!this.node) {
+      throw new Error("adapter-creekd cache filesystem is unavailable");
+    }
+    return this.node.path.join(this.serverDistDir, "pages", pathname);
   }
 
   private setL1(key: string, entry: CacheEntry): void {
