@@ -108,6 +108,27 @@ function applyBuildCacheEnv(entries: string[]): void {
   }
 }
 
+function withCreekdUseCacheHandlers<T extends { cacheComponents?: boolean; cacheHandlers?: Record<string, string | undefined> }>(
+  config: T,
+): Pick<T, "cacheHandlers"> {
+  if (config.cacheComponents !== true) {
+    return {};
+  }
+
+  const localUseCacheHandler = mirrorHandlerIntoProject(
+    ownUseCacheHandlerPath,
+    ".solcreek-creekd-use-cache-handler.mjs",
+  );
+
+  return {
+    cacheHandlers: {
+      ...config.cacheHandlers,
+      default: localUseCacheHandler,
+      remote: localUseCacheHandler,
+    },
+  };
+}
+
 /**
  * Construct a NextAdapter targeting creekd self-host. Call from a
  * thin wrapper module when you want explicit options:
@@ -164,17 +185,7 @@ export function createCreekdAdapter(
           ownCacheHandlerPath,
           ".solcreek-creekd-cache-handler.mjs",
         ),
-        cacheHandlers: {
-          ...baseConfig.cacheHandlers,
-          default: mirrorHandlerIntoProject(
-            ownUseCacheHandlerPath,
-            ".solcreek-creekd-use-cache-handler.mjs",
-          ),
-          remote: mirrorHandlerIntoProject(
-            ownUseCacheHandlerPath,
-            ".solcreek-creekd-use-cache-handler.mjs",
-          ),
-        },
+        ...withCreekdUseCacheHandlers(baseConfig),
         // Next's built-in in-memory cache would sit in front of the custom
         // handler and make invalidation/persistence less predictable. Keep
         // all hot-cache policy inside CreekdCacheHandler's own L1.

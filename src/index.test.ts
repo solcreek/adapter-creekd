@@ -34,7 +34,7 @@ describe("createCreekdAdapter.modifyConfig", () => {
     rmSync(projectDir, { recursive: true, force: true });
   });
 
-  it("routes all server cache policy through the creekd cache handler", () => {
+  it("routes legacy ISR/fetch/image cache through the creekd cache handler", () => {
     const adapter = createCreekdAdapter();
     const config = adapter.modifyConfig?.(
       {
@@ -54,6 +54,20 @@ describe("createCreekdAdapter.modifyConfig", () => {
     });
     expect(config?.output).toBe("standalone");
     expect(config?.cacheHandler).toContain("cache-handler");
+    expect(config?.cacheHandlers).toBeUndefined();
+  });
+
+  it("registers use-cache handlers when cache components are enabled", () => {
+    const adapter = createCreekdAdapter();
+    const config = adapter.modifyConfig?.(
+      {
+        cacheComponents: true,
+      },
+      {
+        phase: "phase-production-build",
+      } as Parameters<NonNullable<typeof adapter.modifyConfig>>[1],
+    );
+
     expect(config?.cacheHandlers).toMatchObject({
       default: expect.stringContaining("use-cache-handler"),
       remote: expect.stringContaining("use-cache-handler"),
