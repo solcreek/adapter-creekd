@@ -21,6 +21,8 @@ During `next build`, the adapter:
 3. Writes `.creek-creekd/manifest.json` with creekd process fields:
    `target`, `runtime`, `entrypoint`, `port`, `env`, and optional
    `health_check_path`.
+4. Exposes `adapter-creekd postbuild`, which runs after `next build`
+   and copies `public/` plus `.next/static/` into the standalone tree.
 
 `creekctl up|ensure|deploy --from .creek-creekd/manifest.json` resolves
 the relative entrypoint to the project root and spawns the process.

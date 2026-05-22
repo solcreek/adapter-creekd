@@ -48,7 +48,7 @@ Add a `postbuild` script so Next.js's standalone tree gets its static and public
 {
   "scripts": {
     "build": "next build",
-    "postbuild": "cp -r public .next/standalone/ 2>/dev/null; cp -r .next/static .next/standalone/.next/"
+    "postbuild": "adapter-creekd postbuild"
   }
 }
 ```

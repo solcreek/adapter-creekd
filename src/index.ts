@@ -161,3 +161,5 @@ export type {
   WriteManifestOptions,
 } from "./manifest.js";
 export { writeManifest } from "./manifest.js";
+export { runPostbuild } from "./postbuild.js";
+export type { PostbuildOptions, PostbuildResult } from "./postbuild.js";

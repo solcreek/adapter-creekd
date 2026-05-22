@@ -5,10 +5,17 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "adapter-creekd": "./dist/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./postbuild": {
+      "types": "./dist/postbuild.d.ts",
+      "default": "./dist/postbuild.js"
     },
     "./cache-handler": {
       "default": "./dist/cache-handler.js"
