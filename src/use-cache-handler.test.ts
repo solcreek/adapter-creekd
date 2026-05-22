@@ -93,6 +93,30 @@ describe("Creekd use-cache handler", () => {
     expect(await handler.get("component:tagged", [])).toBeUndefined();
   });
 
+  it("returns request soft tags without persisting them", async () => {
+    const timestamp = Date.now() - 1000;
+    await handler.set("component:soft-tags", Promise.resolve({
+      value: streamFromText("payload"),
+      tags: ["component-soft"],
+      stale: 300,
+      timestamp,
+      expire: 3600,
+      revalidate: 60,
+    }));
+
+    expect((await handler.get("component:soft-tags", [
+      "route-soft",
+      "component-soft",
+    ]))?.tags).toEqual(["component-soft", "route-soft"]);
+
+    await handler.updateTags(["route-soft"], { expire: 3600 });
+    await handler.refreshTags();
+
+    expect((await handler.get("component:soft-tags", ["route-soft"]))?.revalidate)
+      .toBe(-1);
+    expect((await handler.get("component:soft-tags", []))?.revalidate).toBe(60);
+  });
+
   it("does not use Date.now for internal cache bookkeeping", async () => {
     const timestamp = performance.timeOrigin + performance.now() - 1000;
     const originalDateNow = Date.now;

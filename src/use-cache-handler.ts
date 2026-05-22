@@ -182,6 +182,19 @@ function streamFromBytes(bytes: Uint8Array): ReadableStream<Uint8Array> {
   });
 }
 
+function mergeTags(...tagGroups: string[][]): string[] {
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  for (const group of tagGroups) {
+    for (const tag of group) {
+      if (seen.has(tag)) continue;
+      seen.add(tag);
+      tags.push(tag);
+    }
+  }
+  return tags;
+}
+
 function coerceTagState(value: unknown): TagState | null {
   if (typeof value === "number") return { stale: value };
   if (!value || typeof value !== "object") return null;
@@ -273,12 +286,12 @@ function toCacheEntry(
   const now = nowMs();
   if (now > entry.timestamp + entry.expire * 1000) return undefined;
 
-  const allTags = [...entry.tags, ...softTags];
+  const allTags = mergeTags(entry.tags, softTags);
   if (hasExpiredTag(allTags, entry.timestamp)) return undefined;
 
   return {
     value: streamFromBytes(entry.body),
-    tags: entry.tags,
+    tags: allTags,
     stale: entry.stale,
     timestamp: entry.timestamp,
     expire: entry.expire,
@@ -376,7 +389,7 @@ const handler = {
       const memoryEntry: MemoryUseCacheEntry = {
         schema: 1,
         body,
-        tags: entry.tags,
+        tags: mergeTags(entry.tags),
         stale: entry.stale,
         timestamp: entry.timestamp,
         expire: entry.expire,
