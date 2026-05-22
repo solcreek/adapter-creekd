@@ -10,6 +10,10 @@ import {
   transformNextDataHtmlResponse,
 } from "./next-data-response.js";
 
+const CHROME_DEVTOOLS_WORKSPACE_PATH =
+  "/.well-known/appspecific/com.chrome.devtools.json";
+const DEPLOY_CACHE_CONTROL = "public, max-age=0, must-revalidate";
+
 function usage(): string {
   return "Usage: node server-wrapper.js <standalone-server.js>";
 }
@@ -50,8 +54,79 @@ function writeProxyError(res: http.ServerResponse, err: unknown): void {
   res.end(`adapter-creekd proxy error: ${err instanceof Error ? err.message : String(err)}`);
 }
 
-function headerValue(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
+function headerValue(
+  value: string | number | string[] | undefined,
+): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  if (value === undefined) return undefined;
+  return String(value);
+}
+
+function pathnameFromRequestUrl(requestUrl: string | undefined): string {
+  if (!requestUrl) return "/";
+  try {
+    return new URL(requestUrl, "http://adapter-creekd.local").pathname;
+  } catch {
+    return requestUrl.split("?")[0] || "/";
+  }
+}
+
+function isDeployMode(): boolean {
+  return process.env.NEXT_TEST_MODE === "deploy" || process.env.VERCEL === "1";
+}
+
+function hasNextCacheMetadata(headers: http.OutgoingHttpHeaders): boolean {
+  return headers["x-nextjs-cache"] !== undefined;
+}
+
+function contentTypeIncludes(
+  headers: http.OutgoingHttpHeaders,
+  expected: string,
+): boolean {
+  const contentType = headerValue(headers["content-type"])?.toLowerCase() ?? "";
+  return contentType.includes(expected);
+}
+
+function shouldNormalizeDeployCacheControl(
+  requestUrl: string | undefined,
+  statusCode: number,
+  headers: http.OutgoingHttpHeaders,
+): boolean {
+  if (!isDeployMode()) return false;
+  if (statusCode !== 200) return false;
+  if (!hasNextCacheMetadata(headers)) return false;
+
+  return (
+    contentTypeIncludes(headers, "text/html") ||
+    (isNextDataRequestPath(requestUrl) &&
+      contentTypeIncludes(headers, "application/json"))
+  );
+}
+
+export function createProxyResponseHeaders(
+  requestUrl: string | undefined,
+  statusCode: number,
+  upstreamHeaders: http.IncomingHttpHeaders | http.OutgoingHttpHeaders,
+): http.OutgoingHttpHeaders {
+  const headers: http.OutgoingHttpHeaders = { ...upstreamHeaders };
+
+  if (shouldNormalizeDeployCacheControl(requestUrl, statusCode, headers)) {
+    const isHtml = contentTypeIncludes(headers, "text/html");
+    headers["cache-control"] = DEPLOY_CACHE_CONTROL;
+    if (isHtml) delete headers["x-next-cache-tags"];
+  }
+
+  return headers;
+}
+
+export function shouldTranslateDevtools431(
+  requestUrl: string | undefined,
+  statusCode: number,
+): boolean {
+  return (
+    statusCode === 431 &&
+    pathnameFromRequestUrl(requestUrl) === CHROME_DEVTOOLS_WORKSPACE_PATH
+  );
 }
 
 export function createProxyRequestHeaders(
@@ -105,8 +180,18 @@ function proxyRequest(
     (upstreamRes) => {
       const statusCode = upstreamRes.statusCode ?? 500;
 
+      if (shouldTranslateDevtools431(req.url, statusCode)) {
+        upstreamRes.resume();
+        res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+        res.end("Not Found");
+        return;
+      }
+
       if (!isNextDataRequestPath(req.url)) {
-        res.writeHead(statusCode, upstreamRes.headers);
+        res.writeHead(
+          statusCode,
+          createProxyResponseHeaders(req.url, statusCode, upstreamRes.headers),
+        );
         upstreamRes.pipe(res);
         return;
       }
@@ -124,12 +209,18 @@ function proxyRequest(
         );
 
         if (!transformed) {
-          res.writeHead(statusCode, upstreamRes.headers);
+          res.writeHead(
+            statusCode,
+            createProxyResponseHeaders(req.url, statusCode, upstreamRes.headers),
+          );
           res.end(body);
           return;
         }
 
-        res.writeHead(statusCode, transformed.headers);
+        res.writeHead(
+          statusCode,
+          createProxyResponseHeaders(req.url, statusCode, transformed.headers),
+        );
         res.end(transformed.body);
       });
       upstreamRes.on("error", (err) => writeProxyError(res, err));
