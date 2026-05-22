@@ -1,7 +1,6 @@
-import { createHash, randomUUID } from "node:crypto";
-import { createRequire } from "node:module";
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
+type NodeFs = typeof import("node:fs/promises");
+type NodePath = typeof import("node:path");
+type NodeModules = { fs: NodeFs; path: NodePath };
 
 interface CacheHandlerContext {
   serverDistDir?: string;
@@ -27,10 +26,22 @@ interface TagState {
 
 const DEFAULT_L1_ENTRIES = 2048;
 let lastClock = 0;
-const require = createRequire(import.meta.url);
 
 function hashKey(key: string): string {
-  return createHash("sha256").update(key).digest("hex");
+  let h1 = 0xdeadbeef ^ key.length;
+  let h2 = 0x41c6ce57 ^ key.length;
+  for (let i = 0; i < key.length; i++) {
+    const ch = key.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 =
+    Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^
+    Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 =
+    Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^
+    Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return `${(h2 >>> 0).toString(16).padStart(8, "0")}${(h1 >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 function rememberClock(clock: number): void {
@@ -44,26 +55,75 @@ function nextClock(): number {
   return clock;
 }
 
-function cacheRootFrom(ctx?: CacheHandlerContext): string {
-  if (process.env.CREEK_NEXT_CACHE_DIR) {
-    return path.resolve(process.env.CREEK_NEXT_CACHE_DIR);
+function env(name: string): string | undefined {
+  return (globalThis as { process?: { env?: Record<string, string | undefined> } })
+    .process?.env?.[name];
+}
+
+function cwd(): string {
+  return (
+    globalThis as { process?: { cwd?: () => string } }
+  ).process?.cwd?.() ?? ".";
+}
+
+function pid(): number {
+  return (globalThis as { process?: { pid?: number } }).process?.pid ?? 0;
+}
+
+function randomId(): string {
+  const cryptoLike = (globalThis as {
+    crypto?: { randomUUID?: () => string };
+  }).crypto;
+  return cryptoLike?.randomUUID?.() ??
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function isEdgeRuntime(): boolean {
+  return env("NEXT_RUNTIME") === "edge";
+}
+
+async function loadNodeModules(): Promise<NodeModules | null> {
+  if (isEdgeRuntime()) return null;
+
+  try {
+    const fsSpecifier = "node:" + "fs/promises";
+    const pathSpecifier = "node:" + "path";
+    const [fsModule, pathModule] = await Promise.all([
+      import(fsSpecifier) as Promise<NodeFs>,
+      import(pathSpecifier) as Promise<NodePath>,
+    ]);
+    return { fs: fsModule, path: pathModule };
+  } catch {
+    return null;
+  }
+}
+
+function cacheRootFrom(node: NodeModules, ctx?: CacheHandlerContext): string {
+  const configuredCacheDir = env("CREEK_NEXT_CACHE_DIR");
+  if (configuredCacheDir) {
+    return node.path.resolve(configuredCacheDir);
   }
   if (ctx?.serverDistDir) {
-    return path.resolve(ctx.serverDistDir, "..", "cache", "creekd");
+    return node.path.resolve(ctx.serverDistDir, "..", "cache", "creekd");
   }
-  return path.resolve(process.cwd(), ".creek-cache", "next");
+  return node.path.resolve(cwd(), ".creek-cache", "next");
 }
 
 function maxL1Entries(ctx?: CacheHandlerContext): number {
-  const fromEnv = Number.parseInt(process.env.CREEK_NEXT_CACHE_L1_ENTRIES ?? "", 10);
+  const fromEnv = Number.parseInt(env("CREEK_NEXT_CACHE_L1_ENTRIES") ?? "", 10);
   if (Number.isInteger(fromEnv) && fromEnv >= 0) return fromEnv;
   const fromNext = ctx?.maxMemoryCacheSize;
   if (typeof fromNext === "number" && fromNext === 0) return 0;
   return DEFAULT_L1_ENTRIES;
 }
 
-function loadNextTagsManifest(): Map<string, TagState> | undefined {
+async function loadNextTagsManifest(): Promise<Map<string, TagState> | undefined> {
+  if (isEdgeRuntime()) return undefined;
+
   try {
+    const moduleSpecifier = "node:" + "module";
+    const { createRequire } = await import(moduleSpecifier) as typeof import("node:module");
+    const require = createRequire(import.meta.url);
     const mod = require(
       "next/dist/server/lib/incremental-cache/tags-manifest.external.js",
     ) as { tagsManifest?: Map<string, TagState> };
@@ -92,20 +152,28 @@ function rememberTagStateClock(state: TagState): void {
   }
 }
 
-async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
-  const tmpPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+async function writeJsonAtomic(
+  fs: NodeFs,
+  filePath: string,
+  value: unknown,
+): Promise<void> {
+  const tmpPath = `${filePath}.${pid()}.${randomId()}.tmp`;
   await fs.writeFile(tmpPath, JSON.stringify(value, replace), "utf8");
   await fs.rename(tmpPath, filePath);
 }
 
 function revive(_key: string, value: unknown): unknown {
+  const BufferCtor = (globalThis as {
+    Buffer?: { from(data: number[]): unknown };
+  }).Buffer;
   if (
+    BufferCtor &&
     value &&
     typeof value === "object" &&
     (value as { type?: unknown }).type === "Buffer" &&
     Array.isArray((value as { data?: unknown }).data)
   ) {
-    return Buffer.from((value as { data: number[] }).data);
+    return BufferCtor.from((value as { data: number[] }).data);
   }
   if (
     value &&
@@ -126,21 +194,19 @@ function replace(_key: string, value: unknown): unknown {
 }
 
 export default class CreekdCacheHandler {
-  private readonly rootDir: string;
-  private readonly entriesDir: string;
-  private readonly tagsPath: string;
   private readonly l1MaxEntries: number;
   private readonly l1 = new Map<string, CacheEntry>();
   private readonly tagStates = new Map<string, TagState>();
-  private readonly nextTagsManifest = loadNextTagsManifest();
   private readonly ready: Promise<void>;
+  private node: NodeModules | null = null;
+  private rootDir = "";
+  private entriesDir = "";
+  private tagsPath = "";
+  private nextTagsManifest: Map<string, TagState> | undefined;
 
   constructor(ctx?: CacheHandlerContext) {
-    this.rootDir = cacheRootFrom(ctx);
-    this.entriesDir = path.join(this.rootDir, "entries");
-    this.tagsPath = path.join(this.rootDir, "tags.json");
     this.l1MaxEntries = maxL1Entries(ctx);
-    this.ready = this.init();
+    this.ready = this.init(ctx);
   }
 
   async get(key: string, _ctx?: { kind?: string }) {
@@ -172,7 +238,9 @@ export default class CreekdCacheHandler {
 
     if (data === null) {
       this.l1.delete(key);
-      await fs.rm(this.entryPath(key), { force: true });
+      if (this.node) {
+        await this.node.fs.rm(this.entryPath(key), { force: true });
+      }
       return;
     }
 
@@ -185,8 +253,10 @@ export default class CreekdCacheHandler {
     };
 
     this.setL1(key, entry);
+    if (!this.node) return;
+
     const stored: StoredEntry = { schema: 1, ...entry };
-    await writeJsonAtomic(this.entryPath(key), stored);
+    await writeJsonAtomic(this.node.fs, this.entryPath(key), stored);
   }
 
   async revalidateTag(
@@ -214,13 +284,24 @@ export default class CreekdCacheHandler {
     // No per-request cache to reset. L1 is intentionally process-wide.
   }
 
-  private async init(): Promise<void> {
-    await fs.mkdir(this.entriesDir, { recursive: true });
+  private async init(ctx?: CacheHandlerContext): Promise<void> {
+    this.nextTagsManifest = await loadNextTagsManifest();
+    this.node = await loadNodeModules();
+    if (!this.node) return;
+
+    this.rootDir = cacheRootFrom(this.node, ctx);
+    this.entriesDir = this.node.path.join(this.rootDir, "entries");
+    this.tagsPath = this.node.path.join(this.rootDir, "tags.json");
+
+    await this.node.fs.mkdir(this.entriesDir, { recursive: true });
     await this.loadTags();
   }
 
   private entryPath(key: string): string {
-    return path.join(this.entriesDir, `${hashKey(key)}.json`);
+    if (!this.node) {
+      throw new Error("adapter-creekd cache filesystem is unavailable");
+    }
+    return this.node.path.join(this.entriesDir, `${hashKey(key)}.json`);
   }
 
   private async readEntry(key: string): Promise<CacheEntry | null> {
@@ -229,9 +310,10 @@ export default class CreekdCacheHandler {
       this.setL1(key, cached);
       return cached;
     }
+    if (!this.node) return null;
 
     try {
-      const raw = await fs.readFile(this.entryPath(key), "utf8");
+      const raw = await this.node.fs.readFile(this.entryPath(key), "utf8");
       const stored = JSON.parse(raw, revive) as Partial<StoredEntry>;
       if (stored.schema !== 1 || !stored.lastModified) return null;
       const clock = typeof stored.clock === "number" ? stored.clock : stored.lastModified;
@@ -280,8 +362,10 @@ export default class CreekdCacheHandler {
   }
 
   private async loadTags(): Promise<void> {
+    if (!this.node) return;
+
     try {
-      const raw = await fs.readFile(this.tagsPath, "utf8");
+      const raw = await this.node.fs.readFile(this.tagsPath, "utf8");
       const data = JSON.parse(raw) as Record<string, unknown>;
       for (const [tag, value] of Object.entries(data)) {
         const state = coerceTagState(value);
@@ -296,7 +380,10 @@ export default class CreekdCacheHandler {
   }
 
   private async persistTags(): Promise<void> {
+    if (!this.node) return;
+
     await writeJsonAtomic(
+      this.node.fs,
       this.tagsPath,
       Object.fromEntries(this.tagStates),
     );

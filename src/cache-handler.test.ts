@@ -1,13 +1,15 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import CacheHandler from "./cache-handler.js";
 
 const require = createRequire(import.meta.url);
+const testDir = path.dirname(fileURLToPath(import.meta.url));
 
 describe("CreekdCacheHandler", () => {
   let cacheDir: string;
@@ -132,5 +134,15 @@ describe("CreekdCacheHandler", () => {
     const tagsFile = path.join(cacheDir, ".next", "cache", "creekd", "tags.json");
     await cache.revalidateTag("anything");
     await expect(readFile(tagsFile, "utf8")).resolves.toContain("anything");
+  });
+
+  it("keeps the handler source free of static node imports for edge builds", () => {
+    const source = readFileSync(
+      path.join(testDir, "cache-handler.ts"),
+      "utf8",
+    );
+
+    expect(source).not.toMatch(/^import .*node:/m);
+    expect(source).not.toMatch(/from ["']node:/);
   });
 });
