@@ -20,9 +20,23 @@ export VERCEL="${VERCEL:-1}"
 export NEXT_PRIVATE_TEST_MODE="${NEXT_PRIVATE_TEST_MODE:-e2e}"
 export CREEK_NEXT_CACHE_DIR="${CREEK_NEXT_CACHE_DIR:-${APP_DIR}/.adapter-creekd-cache}"
 export CREEK_NEXT_CACHE_L1_ENTRIES="${CREEK_NEXT_CACHE_L1_ENTRIES:-2048}"
+export SHARP_IGNORE_GLOBAL_LIBVIPS="${SHARP_IGNORE_GLOBAL_LIBVIPS:-1}"
 
 log() {
   printf '[adapter-creekd] %s %s\n' "$(date '+%H:%M:%S')" "$*" >&2
+}
+
+ensure_pnpm_build_policy() {
+  node -e "
+const fs = require('fs');
+const file = 'pnpm-workspace.yaml';
+const allowBlock = 'allowBuilds:\\n  core-js: true\\n  protobufjs: true\\n  sharp: true\\n';
+let text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+text = text.replace(/^allowBuilds:\\n(?:[ \\t].*(?:\\n|$))*/m, '');
+text = allowBlock + text.replace(/^\\n+/, '');
+if (!text.endsWith('\\n')) text += '\\n';
+fs.writeFileSync(file, text);
+" >&2
 }
 
 log "pwd=${PWD}"
@@ -52,7 +66,8 @@ log "Installing project dependencies..."
 if [[ "${PKG_MANAGER}" == npm@* ]]; then
   npm install --legacy-peer-deps --cache "${NPM_CACHE_DIR}" --prefer-offline --no-audit --no-fund >&2 2>&1
 else
-  pnpm install --store-dir "${PNPM_STORE_DIR}" --no-frozen-lockfile --prefer-offline >&2 2>&1
+  ensure_pnpm_build_policy
+  pnpm install --store-dir "${PNPM_STORE_DIR}" --no-frozen-lockfile --prefer-offline --config.dangerouslyAllowAllBuilds=true >&2 2>&1
 fi
 log "package install complete"
 
@@ -87,6 +102,7 @@ if node -e "const p=JSON.parse(require('fs').readFileSync('package.json','utf8')
   if [[ "${PKG_MANAGER}" == npm@* ]]; then
     npm run build 2>&1 | tee .adapter-build-cli.log >&2
   else
+    ensure_pnpm_build_policy
     pnpm run build 2>&1 | tee .adapter-build-cli.log >&2
   fi
 else
