@@ -187,6 +187,53 @@ async function copyBuildCacheIfExists(
   );
 }
 
+async function normalizePrerenderManifestForStandalone(filePath: string): Promise<void> {
+  if (!(await pathExists(filePath))) return;
+
+  const manifest = JSON.parse(await fs.readFile(filePath, "utf8")) as {
+    dynamicRoutes?: Record<string, {
+      fallback?: unknown;
+      renderingMode?: unknown;
+      remainingPrerenderableParams?: unknown;
+    }>;
+  };
+  let changed = false;
+
+  for (const route of Object.values(manifest.dynamicRoutes ?? {})) {
+    if (
+      route?.renderingMode === "PARTIALLY_STATIC" &&
+      route.fallback === null &&
+      Array.isArray(route.remainingPrerenderableParams) &&
+      route.remainingPrerenderableParams.length > 0
+    ) {
+      route.remainingPrerenderableParams = [];
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    await fs.writeFile(filePath, JSON.stringify(manifest, null, 2) + "\n");
+  }
+}
+
+async function normalizePrerenderManifests(
+  distDir: string,
+  standaloneDir: string,
+  serverDir: string,
+): Promise<void> {
+  const manifestPaths = new Set([
+    path.join(distDir, "prerender-manifest.json"),
+    path.join(standaloneDir, ".next", "prerender-manifest.json"),
+    path.join(serverDir, ".next", "prerender-manifest.json"),
+  ]);
+
+  await Promise.all(
+    [...manifestPaths].map((filePath) =>
+      normalizePrerenderManifestForStandalone(filePath)
+    ),
+  );
+}
+
 async function realpathOrSelf(filePath: string): Promise<string> {
   try {
     return await fs.realpath(filePath);
@@ -310,6 +357,7 @@ export async function runPostbuild(
     ".next/static",
     result,
   );
+  await normalizePrerenderManifests(distDir, standaloneDir, serverDir);
   await copyBuildCacheIfExists(distDir, serverDir, result);
   await copyNextRuntimeIfIncomplete(projectDir, serverDir, result);
   await copySharpIfExists(projectDir, serverDir, result);

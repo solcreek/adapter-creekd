@@ -256,6 +256,50 @@ describe("runPostbuild", () => {
     )).toBe("{}");
   });
 
+  it("normalizes blocking PPR dynamic routes in prerender manifests", async () => {
+    await writeStandalone();
+    const manifest = {
+      version: 4,
+      routes: {},
+      dynamicRoutes: {
+        "/blocking/[slug]": {
+          fallback: null,
+          renderingMode: "PARTIALLY_STATIC",
+          remainingPrerenderableParams: [{ paramName: "slug", paramType: "dynamic" }],
+        },
+        "/fallback/[slug]": {
+          fallback: "/fallback/[slug]",
+          renderingMode: "PARTIALLY_STATIC",
+          remainingPrerenderableParams: [{ paramName: "slug", paramType: "dynamic" }],
+        },
+      },
+    };
+    const distManifestPath = path.join(projectDir, ".next", "prerender-manifest.json");
+    const standaloneManifestPath = path.join(
+      projectDir,
+      ".next",
+      "standalone",
+      ".next",
+      "prerender-manifest.json",
+    );
+    await mkdir(path.dirname(distManifestPath), { recursive: true });
+    await mkdir(path.dirname(standaloneManifestPath), { recursive: true });
+    await writeFile(distManifestPath, JSON.stringify(manifest));
+    await writeFile(standaloneManifestPath, JSON.stringify(manifest));
+
+    await runPostbuild({ projectDir });
+
+    for (const filePath of [distManifestPath, standaloneManifestPath]) {
+      const patched = JSON.parse(readFileSync(filePath, "utf8")) as typeof manifest;
+      expect(
+        patched.dynamicRoutes["/blocking/[slug]"].remainingPrerenderableParams,
+      ).toEqual([]);
+      expect(
+        patched.dynamicRoutes["/fallback/[slug]"].remainingPrerenderableParams,
+      ).toEqual([{ paramName: "slug", paramType: "dynamic" }]);
+    }
+  });
+
   it("copies the mirrored creekd cache handler into standalone output", async () => {
     await writeStandalone();
     await writeProjectCacheHandler("handler");
