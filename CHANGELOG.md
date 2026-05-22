@@ -5,6 +5,21 @@ All notable changes to `@solcreek/adapter-creekd` are documented here.
 The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- Bumped `@solcreek/adapter-core` to `^0.2.0` and use the shared
+  `CreekdDeployManifest` contract/validator for emitted manifests.
+- Adapter package metadata in `.creek-creekd/manifest.json` is now read
+  from `package.json`, avoiding a manually synchronized version constant.
+
+### Added
+
+- `createCreekdAdapter` now accepts `env` and `healthCheckPath` options.
+  `NODE_ENV=production` is emitted by default, and user-provided env values
+  can override it.
+
 ## [0.1.1] - 2026-05-19
 
 ### Fixed

@@ -5,9 +5,9 @@ name: publish
 # — npm 11.5.1+ exchanges GitHub Actions' OIDC token for a publish
 # credential when `permissions.id-token: write` is granted. This requires
 # a one-time Trusted Publisher setup on npmjs.com:
-#   https://www.npmjs.com/package/@solcreek/adapter-creek/access
+#   https://www.npmjs.com/package/@solcreek/adapter-creekd/access
 #   → Trusted Publishers → Add publisher → GitHub Actions
-#   → Repository: solcreek/adapter-creek
+#   → Repository: solcreek/adapter-creekd
 #   → Workflow filename: publish.yml
 #
 # Tag → release flow:

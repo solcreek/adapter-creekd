@@ -83,6 +83,10 @@ const config: NextConfig = {
 |---|---|---|---|
 | `runtime` | `"bun" \| "node"` | `"bun"` | Which runtime `creekd` should spawn the standalone server under |
 | `port` | `number` | `3000` | Port the standalone server binds to inside creekd's dispatch namespace |
+| `env` | `string[] \| Record<string, string \| number \| boolean>` | `{ NODE_ENV: "production" }` | Environment variables written to `.creek-creekd/manifest.json`; user values override defaults |
+| `healthCheckPath` | `string` | creekd default `/` | Optional per-app health probe path for strict readiness |
+
+`creekd` itself supports Bun, Node, and Deno as generic process runtimes. This Next.js adapter currently exposes Bun and Node because Next.js standalone output is a Node-compatible server bundle.
 
 ## How it compares
 
@@ -91,6 +95,11 @@ const config: NextConfig = {
 - **vs `docker run` self-host (Coolify / Dokploy / etc.)**: ~5-10× per-app density (process-per-app vs container-per-app), no Docker daemon, blue-green deploy built in.
 
 See the comparison docs in [creekd's `examples/`](https://github.com/solcreek/creekd/tree/main/examples) for measured numbers.
+
+## Architecture
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the adapter/creekd
+boundary and the roadmap for persistent Next.js cache support.
 
 ## License
 

@@ -34,8 +34,7 @@ function makeCtx(projectDir: string, distDir: string) {
 const baseOpts: HandleBuildOptions = {
   runtime: "bun",
   port: 3000,
-  adapterName: "@solcreek/adapter-creekd",
-  adapterVersion: "0.1.1",
+  env: ["NODE_ENV=production"],
 };
 
 describe("handleBuild", () => {
@@ -70,6 +69,7 @@ describe("handleBuild", () => {
       name: "@solcreek/adapter-creekd",
       version: "0.1.1",
     });
+    expect(manifest.env).toEqual(["NODE_ENV=production"]);
   });
 
   it("declares the standalone dir in serveDirs", async () => {
@@ -91,6 +91,14 @@ describe("handleBuild", () => {
       runtime: "node",
     });
     expect(readManifest().runtime).toBe("node");
+  });
+
+  it("preserves healthCheckPath when configured", async () => {
+    await handleBuild(makeCtx(projectDir, distDir), {
+      ...baseOpts,
+      healthCheckPath: "/healthz",
+    });
+    expect(readManifest().health_check_path).toBe("/healthz");
   });
 
   it("flags hasMiddleware when ctx.outputs.middleware is present", async () => {

@@ -6,11 +6,11 @@ import type { NextAdapter } from "next";
 import { applyBaseModifyConfig } from "@solcreek/adapter-core";
 
 import { handleBuild, type HandleBuildOptions } from "./build.js";
-
-// Adapter package identity, embedded into every emitted manifest.
-// Bumped manually alongside package.json on each release.
-const ADAPTER_NAME = "@solcreek/adapter-creekd";
-const ADAPTER_VERSION = "0.1.1";
+import {
+  normalizeEnv,
+  type CreekdEnv,
+  type NextStandaloneRuntime,
+} from "./manifest.js";
 
 /**
  * User-facing options for the adapter. All are optional; defaults are
@@ -22,13 +22,24 @@ export interface CreekdAdapterOptions {
    * Default: "bun" (faster cold start + HTTP throughput; tested
    * against the same Next.js fixtures adapter-creek runs).
    */
-  runtime?: "bun" | "node";
+  runtime?: NextStandaloneRuntime;
   /**
    * TCP port the standalone server binds to. creekd's dispatch
    * listener proxies external traffic to this port.
    * Default: 3000.
    */
   port?: number;
+  /**
+   * Environment variables written into the creekd manifest. The adapter
+   * always defaults NODE_ENV to production; user-provided values with
+   * the same key override the default.
+   */
+  env?: CreekdEnv;
+  /**
+   * Optional per-app creekd health probe path. Leave unset to use
+   * creekd's lenient default `/` probe.
+   */
+  healthCheckPath?: string;
 }
 
 // Dev-fallback path to the cache handler shipped by adapter-core.
@@ -68,8 +79,14 @@ const fallbackCacheHandlerPath = existsSync(fileURLToPath(coreEntryUrl))
 export function createCreekdAdapter(
   options: CreekdAdapterOptions = {},
 ): NextAdapter {
-  const runtime: "bun" | "node" = options.runtime ?? "bun";
+  const runtime: NextStandaloneRuntime = options.runtime ?? "bun";
   const port = options.port ?? 3000;
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    throw new Error(
+      `adapter-creekd: port must be an integer in 1..65535, got ${port}`,
+    );
+  }
+  const env = normalizeEnv(options.env);
 
   return {
     name: "adapter-creekd",
@@ -98,8 +115,8 @@ export function createCreekdAdapter(
       const opts: HandleBuildOptions = {
         runtime,
         port,
-        adapterName: ADAPTER_NAME,
-        adapterVersion: ADAPTER_VERSION,
+        env,
+        healthCheckPath: options.healthCheckPath,
       };
       await handleBuild(ctx, opts);
     },
@@ -114,5 +131,10 @@ export default adapter;
 
 // Public surface for users / downstream tooling that wants to read
 // the manifest format directly.
-export type { CreekdManifest, WriteManifestOptions } from "./manifest.js";
+export type {
+  CreekdEnv,
+  CreekdManifest,
+  NextStandaloneRuntime,
+  WriteManifestOptions,
+} from "./manifest.js";
 export { writeManifest } from "./manifest.js";

@@ -2,6 +2,7 @@ import * as path from "node:path";
 import type { NextAdapter } from "next";
 
 import { writeManifest } from "./manifest.js";
+import type { NextStandaloneRuntime } from "./manifest.js";
 
 type BuildContext = Parameters<NonNullable<NextAdapter["onBuildComplete"]>>[0];
 
@@ -9,12 +10,13 @@ const OUTPUT_DIR = ".creek-creekd";
 
 export interface HandleBuildOptions {
   /** Runtime the supervised process should use. */
-  runtime: "bun" | "node";
+  runtime: NextStandaloneRuntime;
   /** TCP port the standalone server binds to. */
   port: number;
-  /** Adapter package name + version, embedded into the manifest. */
-  adapterName: string;
-  adapterVersion: string;
+  /** Environment variables creekd should pass to the supervised process. */
+  env: string[];
+  /** Optional strict liveness/readiness path for creekd health probes. */
+  healthCheckPath?: string;
 }
 
 // Sequencing: Next.js's official NextAdapter calls `onBuildComplete`
@@ -48,11 +50,11 @@ export async function handleBuild(
     outputDir: path.join(projectDir, OUTPUT_DIR),
     buildId: ctx.buildId,
     nextVersion: ctx.nextVersion,
-    adapterName: opts.adapterName,
-    adapterVersion: opts.adapterVersion,
     runtime: opts.runtime,
     entrypoint: path.relative(projectDir, serverFile),
     port: opts.port,
+    env: opts.env,
+    healthCheckPath: opts.healthCheckPath,
     serveDirs: [path.relative(projectDir, standaloneDir)],
     hasMiddleware: ctx.outputs.middleware !== undefined,
     hasPrerender: hasAnyPrerender(ctx),
