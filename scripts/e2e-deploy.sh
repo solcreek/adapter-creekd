@@ -9,6 +9,7 @@
 set -euo pipefail
 
 ADAPTER_PATH="${ADAPTER_DIR}/dist/index.js"
+ADAPTER_SERVER_WRAPPER="${ADAPTER_DIR}/dist/server-wrapper.js"
 APP_DIR="${PWD}"
 NPM_CACHE_DIR="${TMPDIR:-/tmp}/adapter-creekd-npm-cache"
 PNPM_STORE_DIR="${TMPDIR:-/tmp}/adapter-creekd-pnpm-store-shared"
@@ -142,11 +143,16 @@ export PORT
 
 log "Starting standalone server on port ${PORT}..."
 cd "${SERVER_DIR}"
+if [ -f "${ADAPTER_SERVER_WRAPPER}" ]; then
+  START_CMD=(node "${ADAPTER_SERVER_WRAPPER}" "${SERVER_FILE}")
+else
+  START_CMD=(node "${SERVER_FILE}")
+fi
 if command -v setsid >/dev/null 2>&1; then
-  setsid node "${SERVER_FILE}" > "${APP_DIR}/.adapter-server.log" 2>&1 &
+  setsid "${START_CMD[@]}" > "${APP_DIR}/.adapter-server.log" 2>&1 &
   SERVER_PID=$!
 else
-  node "${SERVER_FILE}" > "${APP_DIR}/.adapter-server.log" 2>&1 &
+  "${START_CMD[@]}" > "${APP_DIR}/.adapter-server.log" 2>&1 &
   SERVER_PID=$!
 fi
 cd "${APP_DIR}"
@@ -157,6 +163,7 @@ echo "${SERVER_PID}" > .adapter-server.pid
   echo "SERVER_PID=${SERVER_PID}"
   echo "APP_DIR=${APP_DIR}"
   echo "SERVER_FILE=${SERVER_FILE}"
+  echo "ADAPTER_SERVER_WRAPPER=${ADAPTER_SERVER_WRAPPER}"
 } > .adapter-runtime.env
 
 for _ in $(seq 1 60); do
