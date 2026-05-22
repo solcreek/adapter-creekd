@@ -89,10 +89,17 @@ function printResult(result) {
         : timing.ms / (timing.name === "get-stale-tag"
             ? Math.ceil(ENTRY_COUNT / TAG_COUNT)
             : ENTRY_COUNT);
+    const opsPerSec = perOp > 0 ? 1000 / perOp : 0;
     console.log(
-      `${timing.name.padEnd(15)} ${timing.ms.toFixed(2).padStart(10)} ms  ${perOp.toFixed(4).padStart(10)} ms/op`,
+      `${timing.name.padEnd(15)} ${timing.ms.toFixed(2).padStart(10)} ms  ${perOp.toFixed(4).padStart(10)} ms/op  ${opsPerSec.toFixed(0).padStart(10)} ops/s`,
     );
   }
+}
+
+function makeCreekdCache(cacheDir, l1Entries) {
+  process.env.CREEK_NEXT_CACHE_DIR = cacheDir;
+  process.env.CREEK_NEXT_CACHE_L1_ENTRIES = String(l1Entries);
+  return new CreekdCacheHandler();
 }
 
 const tmp = await mkdtemp(path.join(tmpdir(), "adapter-creekd-cache-bench-"));
@@ -105,13 +112,14 @@ try {
   const results = [
     await runCandidate("adapter-core in-memory", async () => new CoreCacheHandler()),
     await runCandidate("adapter-creekd filesystem L1+L2", async () => {
-      process.env.CREEK_NEXT_CACHE_DIR = path.join(tmp, "creekd");
-      process.env.CREEK_NEXT_CACHE_L1_ENTRIES = String(ENTRY_COUNT);
-      return new CreekdCacheHandler();
+      return makeCreekdCache(path.join(tmp, "creekd-l1-l2"), ENTRY_COUNT);
     }, async () => {
-      process.env.CREEK_NEXT_CACHE_DIR = path.join(tmp, "creekd");
-      process.env.CREEK_NEXT_CACHE_L1_ENTRIES = String(ENTRY_COUNT);
-      return new CreekdCacheHandler();
+      return makeCreekdCache(path.join(tmp, "creekd-l1-l2"), ENTRY_COUNT);
+    }),
+    await runCandidate("adapter-creekd filesystem L2 only", async () => {
+      return makeCreekdCache(path.join(tmp, "creekd-l2-only"), 0);
+    }, async () => {
+      return makeCreekdCache(path.join(tmp, "creekd-l2-only"), 0);
     }),
   ];
   for (const result of results) printResult(result);

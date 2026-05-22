@@ -114,6 +114,10 @@ Run the low-level handler benchmark:
 pnpm bench:cache
 ```
 
+This compares three cache paths: adapter-core's in-memory baseline,
+adapter-creekd's production L1+filesystem-L2 handler, and adapter-creekd's
+filesystem-L2-only mode (`CREEK_NEXT_CACHE_L1_ENTRIES=0`).
+
 Run the self-host Next.js fixture benchmark:
 
 ```bash
