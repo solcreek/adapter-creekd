@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -23,6 +23,15 @@ async function streamToText(stream: ReadableStream<Uint8Array>): Promise<string>
     chunks.push(chunk.value);
   }
   return Buffer.concat(chunks).toString("utf8");
+}
+
+function countUseCacheFiles(cacheDir: string): number {
+  const root = path.join(cacheDir, "use-cache");
+  try {
+    return readdirSync(root).filter((name) => name.endsWith(".json")).length;
+  } catch {
+    return 0;
+  }
 }
 
 describe("Creekd use-cache handler", () => {
@@ -164,6 +173,40 @@ describe("Creekd use-cache handler", () => {
       expect((await handler.get("component:no-date-now", []))?.revalidate).toBe(-1);
     } finally {
       Date.now = originalDateNow;
+    }
+  });
+
+  it("keeps production-build entries in memory without persisting them to disk", async () => {
+    const oldNextPhase = process.env.NEXT_PHASE;
+    const oldL1Entries = process.env.CREEK_NEXT_CACHE_L1_ENTRIES;
+    const before = countUseCacheFiles(cacheDir);
+    process.env.NEXT_PHASE = "phase-production-build";
+    process.env.CREEK_NEXT_CACHE_L1_ENTRIES = "2048";
+
+    try {
+      await handler.set("component:build-only", Promise.resolve({
+        value: streamFromText("buildtime"),
+        tags: ["build-only"],
+        stale: 300,
+        timestamp: performance.timeOrigin + performance.now(),
+        expire: 3600,
+        revalidate: 60,
+      }));
+
+      const hit = await handler.get("component:build-only", []);
+      expect(hit?.value ? await streamToText(hit.value) : "").toBe("buildtime");
+      expect(countUseCacheFiles(cacheDir)).toBe(before);
+    } finally {
+      if (oldNextPhase === undefined) {
+        delete process.env.NEXT_PHASE;
+      } else {
+        process.env.NEXT_PHASE = oldNextPhase;
+      }
+      if (oldL1Entries === undefined) {
+        delete process.env.CREEK_NEXT_CACHE_L1_ENTRIES;
+      } else {
+        process.env.CREEK_NEXT_CACHE_L1_ENTRIES = oldL1Entries;
+      }
     }
   });
 });

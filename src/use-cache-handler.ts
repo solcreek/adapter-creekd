@@ -31,6 +31,7 @@ interface TagState {
 }
 
 const DEFAULT_L1_ENTRIES = 2048;
+const PHASE_PRODUCTION_BUILD = "phase-production-build";
 const pendingSets = new Map<string, Promise<void>>();
 const l1 = new Map<string, MemoryUseCacheEntry>();
 const tagStates = new Map<string, TagState>();
@@ -97,6 +98,10 @@ function randomId(): string {
 
 function isEdgeRuntime(): boolean {
   return env("NEXT_RUNTIME") === "edge";
+}
+
+function isProductionBuildPhase(): boolean {
+  return env("NEXT_PHASE") === PHASE_PRODUCTION_BUILD;
 }
 
 async function loadNodeModules(): Promise<NodeModules | null> {
@@ -404,6 +409,7 @@ const handler = {
 
       setL1(cacheKey, memoryEntry);
       debug("set", hashKey(cacheKey), { tags: memoryEntry.tags });
+      if (isProductionBuildPhase()) return;
       if (!node) return;
 
       const stored: StoredUseCacheEntry = {
