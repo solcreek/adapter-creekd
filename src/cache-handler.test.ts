@@ -76,6 +76,28 @@ describe("CreekdCacheHandler", () => {
     expect(hit?.cacheState).toBe("stale");
   });
 
+  it("does not use Date.now for internal cache bookkeeping", async () => {
+    const originalDateNow = Date.now;
+
+    Date.now = () => {
+      throw new Error("Date.now must not be used by the cache handler");
+    };
+
+    try {
+      const cache = new CacheHandler();
+      await cache.set("no-date-now", { ok: true }, {
+        tags: ["no-date-now"],
+        revalidate: 60,
+      });
+
+      expect((await cache.get("no-date-now"))?.cacheState).toBe("fresh");
+      await cache.revalidateTag("no-date-now", { expire: 60 });
+      expect((await cache.get("no-date-now"))?.cacheState).toBe("stale");
+    } finally {
+      Date.now = originalDateNow;
+    }
+  });
+
   it("mirrors tag invalidation into Next.js runtime tag manifest", async () => {
     const { tagsManifest } = require(
       "next/dist/server/lib/incremental-cache/tags-manifest.external.js",

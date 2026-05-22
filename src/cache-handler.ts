@@ -67,8 +67,18 @@ function rememberClock(clock: number): void {
   if (clock > lastClock) lastClock = clock;
 }
 
+function nowMs(): number {
+  const perf = (globalThis as {
+    performance?: { now?: () => number; timeOrigin?: number };
+  }).performance;
+  if (perf?.now && typeof perf.timeOrigin === "number") {
+    return perf.timeOrigin + perf.now();
+  }
+  return Date.now();
+}
+
 function nextClock(): number {
-  const now = Date.now();
+  const now = nowMs();
   const clock = now > lastClock ? now : lastClock + 1;
   lastClock = clock;
   return clock;
@@ -94,7 +104,7 @@ function randomId(): string {
     crypto?: { randomUUID?: () => string };
   }).crypto;
   return cryptoLike?.randomUUID?.() ??
-    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    `${Math.round(nowMs()).toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 function isEdgeRuntime(): boolean {
@@ -165,7 +175,7 @@ function coerceTagState(value: unknown): TagState | null {
 }
 
 function rememberTagStateClock(state: TagState): void {
-  const now = Date.now();
+  const now = nowMs();
   for (const value of [state.stale, state.expired]) {
     if (typeof value === "number") rememberClock(Math.min(value, now));
   }
@@ -261,7 +271,7 @@ export default class CreekdCacheHandler {
     const entry = await this.readEntry(key, ctx);
     if (!entry) return null;
 
-    const age = (Date.now() - entry.lastModified) / 1000;
+    const age = (nowMs() - entry.lastModified) / 1000;
     const staleByTag = this.isStaleByTags(entry);
     const staleByTime =
       entry.revalidate !== undefined &&
@@ -293,7 +303,7 @@ export default class CreekdCacheHandler {
 
     const entry: CacheEntry = {
       value: data,
-      lastModified: Date.now(),
+      lastModified: nowMs(),
       clock: nextClock(),
       tags: ctx?.tags ?? [],
       revalidate: typeof ctx?.revalidate === "number" ? ctx.revalidate : undefined,
