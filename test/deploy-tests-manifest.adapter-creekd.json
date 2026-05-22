@@ -1,7 +1,14 @@
 {
   "version": 2,
-  "_comment": "Adapter-creekd deploy-test exclusions. Merged with Next.js's canonical test/deploy-tests-manifest.json via NEXT_EXTERNAL_TESTS_FILTERS. expire-time is upstream-marked with it.failing for a Vercel Proxy limitation; adapter-creekd already satisfies the intended behavior, so running the single-test file in deploy mode makes the failing marker fail.",
-  "suites": {},
+  "_comment": "Adapter-creekd deploy-test exclusions. Merged with Next.js's canonical test/deploy-tests-manifest.json via NEXT_EXTERNAL_TESTS_FILTERS. expire-time is upstream-marked with it.failing for a Vercel Proxy limitation; adapter-creekd already satisfies the intended behavior, so running the single-test file in deploy mode makes the failing marker fail. The segment-cache fallback-param cases are skipped in current Next.js canary but still present in the pinned CI ref.",
+  "suites": {
+    "test/e2e/app-dir/segment-cache/cached-navigations/cached-navigations.test.ts": {
+      "flakey": [
+        "cached navigations defers fallback params to the runtime stage",
+        "cached navigations reuses cached page segment across different fallback params after navigation"
+      ]
+    }
+  },
   "rules": {
     "include": [],
     "exclude": [
