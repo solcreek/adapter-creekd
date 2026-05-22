@@ -13,6 +13,10 @@ import {
 const CHROME_DEVTOOLS_WORKSPACE_PATH =
   "/.well-known/appspecific/com.chrome.devtools.json";
 const DEPLOY_CACHE_CONTROL = "public, max-age=0, must-revalidate";
+const DEFAULT_INNER_HOST = "localhost";
+const ORIGIN_PRELOAD_FILE = "origin-preload.js";
+const NEXT_LOCALHOST_HOSTNAME_RE =
+  /^(?:127(?:\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}|\[::1\]|::1|localhost)$/;
 
 function usage(): string {
   return "Usage: node server-wrapper.js <standalone-server.js>";
@@ -41,6 +45,42 @@ async function allocatePort(host: string): Promise<number> {
 
   if (!port) throw new Error("failed to allocate internal server port");
   return port;
+}
+
+function formatHostForOrigin(host: string): string {
+  return host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+}
+
+function publicOrigin(host: string, port: number): string {
+  return `http://${formatHostForOrigin(host)}:${port}`;
+}
+
+export function createStandaloneChildEnv(
+  baseEnv: NodeJS.ProcessEnv,
+  publicHost: string,
+  publicPort: number,
+  innerHost: string,
+  innerPort: number,
+): NodeJS.ProcessEnv {
+  return {
+    ...baseEnv,
+    CREEK_NEXT_PUBLIC_ORIGIN: publicOrigin(publicHost, publicPort),
+    HOSTNAME: innerHost,
+    PORT: String(innerPort),
+  };
+}
+
+export function createStandaloneChildArgs(serverFile: string): string[] {
+  const preloadFile = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    ORIGIN_PRELOAD_FILE,
+  );
+  return ["--import", preloadFile, serverFile];
+}
+
+export function resolveInnerHost(value: string | undefined): string {
+  const host = value || DEFAULT_INNER_HOST;
+  return NEXT_LOCALHOST_HOSTNAME_RE.test(host) ? "localhost" : host;
 }
 
 function writeProxyError(res: http.ServerResponse, err: unknown): void {
@@ -237,19 +277,21 @@ async function main(argv: string[]): Promise<void> {
 
   const publicPort = parsePort(process.env.PORT, "PORT");
   const publicHost = process.env.HOSTNAME || "127.0.0.1";
-  const innerHost = process.env.CREEK_NEXT_INNER_HOST || "127.0.0.1";
+  const innerHost = resolveInnerHost(process.env.CREEK_NEXT_INNER_HOST);
   const innerPort = process.env.CREEK_NEXT_INNER_PORT
     ? parsePort(process.env.CREEK_NEXT_INNER_PORT, "CREEK_NEXT_INNER_PORT")
     : await allocatePort(innerHost);
 
   const absoluteServerFile = path.resolve(serverFile);
-  const child = spawn(process.execPath, [absoluteServerFile], {
+  const child = spawn(process.execPath, createStandaloneChildArgs(absoluteServerFile), {
     cwd: path.dirname(absoluteServerFile),
-    env: {
-      ...process.env,
-      HOSTNAME: innerHost,
-      PORT: String(innerPort),
-    },
+    env: createStandaloneChildEnv(
+      process.env,
+      publicHost,
+      publicPort,
+      innerHost,
+      innerPort,
+    ),
     stdio: "inherit",
   });
 

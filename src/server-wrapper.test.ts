@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  createStandaloneChildArgs,
+  createStandaloneChildEnv,
   createProxyRequestHeaders,
   createProxyResponseHeaders,
+  resolveInnerHost,
   shouldTranslateDevtools431,
 } from "./server-wrapper.js";
 
@@ -128,5 +131,47 @@ describe("server wrapper proxy headers", () => {
       "/.well-known/appspecific/com.chrome.devtools.json",
       404,
     )).toBe(false);
+  });
+});
+
+describe("standalone child process", () => {
+  it("uses localhost for the default inner listener to match NextURL loopback normalization", () => {
+    expect(resolveInnerHost(undefined)).toBe("localhost");
+    expect(resolveInnerHost("127.0.0.1")).toBe("localhost");
+    expect(resolveInnerHost("::1")).toBe("localhost");
+    expect(resolveInnerHost("192.0.2.10")).toBe("192.0.2.10");
+  });
+
+  it("runs standalone with a preload that keeps Next private origin on the public proxy", () => {
+    const env = createStandaloneChildEnv(
+      { NODE_ENV: "production" },
+      "127.0.0.1",
+      3000,
+      "127.0.0.1",
+      4000,
+    );
+
+    expect(env.CREEK_NEXT_PUBLIC_ORIGIN).toBe("http://127.0.0.1:3000");
+    expect(env.HOSTNAME).toBe("127.0.0.1");
+    expect(env.PORT).toBe("4000");
+
+    const args = createStandaloneChildArgs("/tmp/server.js");
+    expect(args).toEqual([
+      "--import",
+      expect.stringContaining("origin-preload.js"),
+      "/tmp/server.js",
+    ]);
+  });
+
+  it("brackets IPv6 public hosts when computing the proxy origin", () => {
+    const env = createStandaloneChildEnv(
+      {},
+      "::1",
+      3000,
+      "127.0.0.1",
+      4000,
+    );
+
+    expect(env.CREEK_NEXT_PUBLIC_ORIGIN).toBe("http://[::1]:3000");
   });
 });
