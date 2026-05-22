@@ -22,6 +22,19 @@ describe("runPostbuild", () => {
     await writeFile(path.join(projectDir, ".next", "standalone", "server.js"), "");
   }
 
+  async function writeNestedStandalone(): Promise<string> {
+    const serverDir = path.join(
+      projectDir,
+      ".next",
+      "standalone",
+      "apps",
+      "web",
+    );
+    await mkdir(serverDir, { recursive: true });
+    await writeFile(path.join(serverDir, "server.js"), "");
+    return serverDir;
+  }
+
   it("copies public and static assets into standalone output", async () => {
     await writeStandalone();
     await mkdir(path.join(projectDir, "public"), { recursive: true });
@@ -32,6 +45,9 @@ describe("runPostbuild", () => {
     const result = await runPostbuild({ projectDir });
 
     expect(result.copied).toEqual(["public", ".next/static"]);
+    expect(result.serverFile).toBe(
+      path.join(projectDir, ".next", "standalone", "server.js"),
+    );
     expect(readFileSync(
       path.join(projectDir, ".next", "standalone", "public", "robots.txt"),
       "utf8",
@@ -49,6 +65,23 @@ describe("runPostbuild", () => {
 
     expect(result.copied).toEqual([]);
     expect(result.skipped).toEqual(["public", ".next/static"]);
+  });
+
+  it("copies assets next to nested standalone server output", async () => {
+    const serverDir = await writeNestedStandalone();
+    await mkdir(path.join(projectDir, "public"), { recursive: true });
+    await mkdir(path.join(projectDir, ".next", "static", "chunks"), { recursive: true });
+    writeFileSync(path.join(projectDir, "public", "robots.txt"), "ok");
+    writeFileSync(path.join(projectDir, ".next", "static", "chunks", "app.js"), "ok");
+
+    const result = await runPostbuild({ projectDir });
+
+    expect(result.serverDir).toBe(serverDir);
+    expect(readFileSync(path.join(serverDir, "public", "robots.txt"), "utf8")).toBe("ok");
+    expect(readFileSync(
+      path.join(serverDir, ".next", "static", "chunks", "app.js"),
+      "utf8",
+    )).toBe("ok");
   });
 
   it("fails clearly when standalone output has not been generated", async () => {

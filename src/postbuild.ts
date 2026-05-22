@@ -8,6 +8,8 @@ export interface PostbuildOptions {
 
 export interface PostbuildResult {
   standaloneDir: string;
+  serverDir: string;
+  serverFile: string;
   copied: string[];
   skipped: string[];
 }
@@ -37,6 +39,40 @@ async function copyDirectoryIfExists(
   result.copied.push(label);
 }
 
+async function findStandaloneServerFile(standaloneDir: string): Promise<string | null> {
+  const standardServerFile = path.join(standaloneDir, "server.js");
+  if (await pathExists(standardServerFile)) return standardServerFile;
+
+  const matches: string[] = [];
+  async function visit(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (entry.name === "node_modules") continue;
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await visit(entryPath);
+      } else if (entry.isFile() && entry.name === "server.js") {
+        matches.push(entryPath);
+      }
+    }
+  }
+
+  await visit(standaloneDir);
+  if (matches.length === 0) return null;
+  if (matches.length > 1) {
+    throw new Error(
+      `adapter-creekd postbuild: found multiple standalone server.js files: ${matches.map((match) => path.relative(standaloneDir, match)).join(", ")}`,
+    );
+  }
+  return matches[0];
+}
+
 /**
  * Run after `next build`. Next.js standalone output intentionally omits
  * public/ and .next/static, but its server expects them at standard
@@ -48,28 +84,32 @@ export async function runPostbuild(
   const projectDir = path.resolve(options.projectDir ?? process.cwd());
   const distDir = path.resolve(projectDir, options.distDir ?? ".next");
   const standaloneDir = path.join(distDir, "standalone");
+  const serverFile = await findStandaloneServerFile(standaloneDir);
 
-  if (!(await pathExists(path.join(standaloneDir, "server.js")))) {
+  if (!serverFile) {
     throw new Error(
       `adapter-creekd postbuild: missing ${path.relative(projectDir, path.join(standaloneDir, "server.js"))}; run next build with adapter-creekd first`,
     );
   }
+  const serverDir = path.dirname(serverFile);
 
   const result: PostbuildResult = {
     standaloneDir,
+    serverDir,
+    serverFile,
     copied: [],
     skipped: [],
   };
 
   await copyDirectoryIfExists(
     path.join(projectDir, "public"),
-    path.join(standaloneDir, "public"),
+    path.join(serverDir, "public"),
     "public",
     result,
   );
   await copyDirectoryIfExists(
     path.join(distDir, "static"),
-    path.join(standaloneDir, ".next", "static"),
+    path.join(serverDir, ".next", "static"),
     ".next/static",
     result,
   );

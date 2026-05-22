@@ -18,7 +18,9 @@ function makeProject(): { projectDir: string; distDir: string } {
 function makeCtx(projectDir: string, distDir: string) {
   return {
     projectDir,
+    repoRoot: projectDir,
     distDir,
+    config: {},
     buildId: "test-build-id",
     nextVersion: "16.2.3",
     outputs: {
@@ -76,6 +78,27 @@ describe("handleBuild", () => {
     await handleBuild(makeCtx(projectDir, distDir), baseOpts);
     const { serveDirs } = readManifest();
     expect(serveDirs).toEqual([".next/standalone"]);
+  });
+
+  it("points manifest entrypoint at nested standalone server for tracing roots", async () => {
+    const repoRoot = path.dirname(projectDir);
+    const ctx = makeCtx(projectDir, distDir);
+    (ctx as unknown as { repoRoot: string; config: { outputFileTracingRoot: string } }).repoRoot =
+      repoRoot;
+    (ctx as unknown as { config: { outputFileTracingRoot: string } }).config = {
+      outputFileTracingRoot: repoRoot,
+    };
+
+    await handleBuild(ctx, baseOpts);
+
+    expect(readManifest().entrypoint).toBe(
+      path.join(
+        ".next",
+        "standalone",
+        path.basename(projectDir),
+        "server.js",
+      ),
+    );
   });
 
   it("does not require .next/standalone to exist at write time", async () => {

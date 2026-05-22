@@ -19,6 +19,27 @@ export interface HandleBuildOptions {
   healthCheckPath?: string;
 }
 
+function resolveStandaloneServerFile(ctx: BuildContext): string {
+  const standaloneDir = path.join(ctx.distDir, "standalone");
+  const tracingRoot = ctx.config.outputFileTracingRoot;
+
+  if (tracingRoot) {
+    const relativeProjectDir = path.relative(
+      path.resolve(tracingRoot),
+      ctx.projectDir,
+    );
+    if (
+      relativeProjectDir &&
+      !relativeProjectDir.startsWith("..") &&
+      !path.isAbsolute(relativeProjectDir)
+    ) {
+      return path.join(standaloneDir, relativeProjectDir, "server.js");
+    }
+  }
+
+  return path.join(standaloneDir, "server.js");
+}
+
 // Sequencing: Next.js's official NextAdapter calls `onBuildComplete`
 // BEFORE running `output: 'standalone'` codegen (the source comment is
 // explicit: "This should come after output: export handling but before
@@ -44,7 +65,7 @@ export async function handleBuild(
   const distDir = ctx.distDir;
 
   const standaloneDir = path.join(distDir, "standalone");
-  const serverFile = path.join(standaloneDir, "server.js");
+  const serverFile = resolveStandaloneServerFile(ctx);
 
   await writeManifest({
     outputDir: path.join(projectDir, OUTPUT_DIR),
