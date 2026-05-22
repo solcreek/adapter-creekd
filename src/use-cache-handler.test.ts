@@ -117,6 +117,29 @@ describe("Creekd use-cache handler", () => {
     expect((await handler.get("component:soft-tags", []))?.revalidate).toBe(60);
   });
 
+  it("blocks instead of serving stale entries when stale time is zero", async () => {
+    await handler.set("component:zero-stale", Promise.resolve({
+      value: streamFromText("payload"),
+      tags: ["zero-stale"],
+      stale: 0,
+      timestamp: Date.now() - 2_000,
+      expire: 3600,
+      revalidate: 1,
+    }));
+
+    await handler.set("component:positive-stale", Promise.resolve({
+      value: streamFromText("payload"),
+      tags: ["positive-stale"],
+      stale: 300,
+      timestamp: Date.now() - 2_000,
+      expire: 3600,
+      revalidate: 1,
+    }));
+
+    expect(await handler.get("component:zero-stale", [])).toBeUndefined();
+    expect(await handler.get("component:positive-stale", [])).toBeDefined();
+  });
+
   it("does not use Date.now for internal cache bookkeeping", async () => {
     const timestamp = performance.timeOrigin + performance.now() - 1000;
     const originalDateNow = Date.now;

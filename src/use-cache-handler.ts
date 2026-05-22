@@ -285,6 +285,12 @@ function toCacheEntry(
 ): UseCacheEntry | undefined {
   const now = nowMs();
   if (now > entry.timestamp + entry.expire * 1000) return undefined;
+  if (
+    entry.stale <= 0 &&
+    now > entry.timestamp + entry.revalidate * 1000
+  ) {
+    return undefined;
+  }
 
   const allTags = mergeTags(entry.tags, softTags);
   if (hasExpiredTag(allTags, entry.timestamp)) return undefined;
