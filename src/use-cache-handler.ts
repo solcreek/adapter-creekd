@@ -77,12 +77,22 @@ function pid(): number {
   return (globalThis as { process?: { pid?: number } }).process?.pid ?? 0;
 }
 
+function nowMs(): number {
+  const perf = (globalThis as {
+    performance?: { now?: () => number; timeOrigin?: number };
+  }).performance;
+  if (perf?.now && typeof perf.timeOrigin === "number") {
+    return perf.timeOrigin + perf.now();
+  }
+  return Date.now();
+}
+
 function randomId(): string {
   const cryptoLike = (globalThis as {
     crypto?: { randomUUID?: () => string };
   }).crypto;
   return cryptoLike?.randomUUID?.() ??
-    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    `${Math.round(nowMs()).toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 function isEdgeRuntime(): boolean {
@@ -232,7 +242,7 @@ function setL1(key: string, entry: MemoryUseCacheEntry): void {
 }
 
 function hasExpiredTag(tags: string[], timestamp: number): boolean {
-  const now = Date.now();
+  const now = nowMs();
   for (const tag of tags) {
     const state = tagStates.get(tag);
     if (
@@ -260,7 +270,7 @@ function toCacheEntry(
   entry: MemoryUseCacheEntry,
   softTags: string[],
 ): UseCacheEntry | undefined {
-  const now = Date.now();
+  const now = nowMs();
   if (now > entry.timestamp + entry.expire * 1000) return undefined;
 
   const allTags = [...entry.tags, ...softTags];
@@ -360,7 +370,9 @@ const handler = {
 
     const setPromise = (async () => {
       const entry = await pendingEntry;
-      const body = await streamToBytes(entry.value);
+      const [persistedStream, returnedStream] = entry.value.tee();
+      entry.value = returnedStream;
+      const body = await streamToBytes(persistedStream);
       const memoryEntry: MemoryUseCacheEntry = {
         schema: 1,
         body,
@@ -402,7 +414,7 @@ const handler = {
 
   async updateTags(tags: string[], durations?: { expire?: number }): Promise<void> {
     await init();
-    const now = Date.now();
+    const now = nowMs();
     for (const tag of tags) {
       const state = { ...tagStates.get(tag) };
       if (durations) {

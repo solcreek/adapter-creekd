@@ -54,14 +54,15 @@ describe("Creekd use-cache handler", () => {
 
   it("persists stream entries and returns fresh reads", async () => {
     const timestamp = Date.now() - 1000;
-    await handler.set("component:one", Promise.resolve({
+    const entry = {
       value: streamFromText("payload"),
       tags: ["component-tag"],
       stale: 300,
       timestamp,
       expire: 3600,
       revalidate: 60,
-    }));
+    };
+    await handler.set("component:one", Promise.resolve(entry));
 
     const hit = await handler.get("component:one", []);
 
@@ -69,6 +70,7 @@ describe("Creekd use-cache handler", () => {
     expect(hit?.timestamp).toBe(timestamp);
     expect(hit?.revalidate).toBe(60);
     expect(hit?.value ? await streamToText(hit.value) : "").toBe("payload");
+    expect(await streamToText(entry.value)).toBe("payload");
   });
 
   it("marks entries stale or expired from persisted tags", async () => {
@@ -89,5 +91,32 @@ describe("Creekd use-cache handler", () => {
     await handler.updateTags(["tagged"]);
     await handler.refreshTags();
     expect(await handler.get("component:tagged", [])).toBeUndefined();
+  });
+
+  it("does not use Date.now for internal cache bookkeeping", async () => {
+    const timestamp = performance.timeOrigin + performance.now() - 1000;
+    const originalDateNow = Date.now;
+
+    Date.now = () => {
+      throw new Error("Date.now must not be used by the cache handler");
+    };
+
+    try {
+      await handler.set("component:no-date-now", Promise.resolve({
+        value: streamFromText("payload"),
+        tags: ["no-date-now"],
+        stale: 300,
+        timestamp,
+        expire: 3600,
+        revalidate: 60,
+      }));
+
+      expect(await handler.get("component:no-date-now", [])).toBeDefined();
+      await handler.updateTags(["no-date-now"], { expire: 3600 });
+      await handler.refreshTags();
+      expect((await handler.get("component:no-date-now", []))?.revalidate).toBe(-1);
+    } finally {
+      Date.now = originalDateNow;
+    }
   });
 });
