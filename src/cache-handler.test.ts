@@ -125,6 +125,33 @@ describe("CreekdCacheHandler", () => {
     });
   });
 
+  it("persists app page segment data maps", async () => {
+    const first = new CacheHandler();
+    await first.set("app-page:segments", {
+      kind: "APP_PAGE",
+      html: Buffer.from("<p>shell</p>"),
+      rscData: Buffer.from("rsc"),
+      segmentData: new Map([
+        ["/dynamic", Buffer.from("segment")],
+      ]),
+    }, { revalidate: 60 });
+
+    const second = new CacheHandler();
+    const hit = await second.get("app-page:segments");
+    const value = hit?.value as {
+      html?: unknown;
+      rscData?: unknown;
+      segmentData?: unknown;
+    };
+
+    expect(value.html).toEqual(Buffer.from("<p>shell</p>"));
+    expect(value.rscData).toEqual(Buffer.from("rsc"));
+    expect(value.segmentData).toBeInstanceOf(Map);
+    expect((value.segmentData as Map<string, Buffer>).get("/dynamic")).toEqual(
+      Buffer.from("segment"),
+    );
+  });
+
   it("derives the default cache root from serverDistDir", async () => {
     delete process.env.CREEK_NEXT_CACHE_DIR;
     const serverDistDir = path.join(cacheDir, ".next", "server");

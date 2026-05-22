@@ -167,6 +167,14 @@ function revive(_key: string, value: unknown): unknown {
     Buffer?: { from(data: number[]): unknown };
   }).Buffer;
   if (
+    value &&
+    typeof value === "object" &&
+    (value as { $type?: unknown }).$type === "Map" &&
+    Array.isArray((value as { entries?: unknown }).entries)
+  ) {
+    return new Map((value as { entries: [unknown, unknown][] }).entries);
+  }
+  if (
     BufferCtor &&
     value &&
     typeof value === "object" &&
@@ -187,6 +195,9 @@ function revive(_key: string, value: unknown): unknown {
 }
 
 function replace(_key: string, value: unknown): unknown {
+  if (value instanceof Map) {
+    return { $type: "Map", entries: Array.from(value.entries()) };
+  }
   if (typeof value === "bigint") {
     return { $type: "BigInt", value: value.toString() };
   }
