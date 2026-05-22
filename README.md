@@ -102,9 +102,12 @@ Production builds use adapter-creekd's Next.js cache handler:
 - Optimized `next/image` entries opt into the same handler via `images.customCacheHandler`.
 
 By default, the cache lives under Next's server dist tree at `.next/cache/creekd`.
-Set `CREEK_NEXT_CACHE_DIR=/path/to/cache` to place it on a creekd volume or another
-durable local disk path. Set `CREEK_NEXT_CACHE_L1_ENTRIES=0` to disable the L1
-memory layer, or set it to a positive integer to cap hot entries.
+`adapter-creekd postbuild` copies this build-seeded cache into the standalone tree
+so prerendered App Router/PPR entries are available at runtime. Set
+`CREEK_NEXT_CACHE_DIR=/path/to/cache` at both build time and runtime to place it
+on a creekd volume or another durable local disk path. Set
+`CREEK_NEXT_CACHE_L1_ENTRIES=0` to disable the L1 memory layer, or set it to a
+positive integer to cap hot entries.
 
 ## Benchmarks
 

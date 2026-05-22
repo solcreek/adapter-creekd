@@ -17,6 +17,8 @@ mkdir -p "${NPM_CACHE_DIR}" "${PNPM_STORE_DIR}"
 export VERCEL_ENV="${VERCEL_ENV:-preview}"
 export VERCEL="${VERCEL:-1}"
 export NEXT_PRIVATE_TEST_MODE="${NEXT_PRIVATE_TEST_MODE:-e2e}"
+export CREEK_NEXT_CACHE_DIR="${CREEK_NEXT_CACHE_DIR:-${APP_DIR}/.adapter-creekd-cache}"
+export CREEK_NEXT_CACHE_L1_ENTRIES="${CREEK_NEXT_CACHE_L1_ENTRIES:-2048}"
 
 log() {
   printf '[adapter-creekd] %s %s\n' "$(date '+%H:%M:%S')" "$*" >&2
@@ -137,8 +139,6 @@ ADAPTER_HOST="${ADAPTER_HOST:-127.0.0.1}"
 export HOSTNAME="${ADAPTER_HOST}"
 export NODE_ENV="${NODE_ENV:-production}"
 export PORT
-export CREEK_NEXT_CACHE_DIR="${CREEK_NEXT_CACHE_DIR:-${APP_DIR}/.adapter-creekd-cache}"
-export CREEK_NEXT_CACHE_L1_ENTRIES="${CREEK_NEXT_CACHE_L1_ENTRIES:-2048}"
 
 log "Starting standalone server on port ${PORT}..."
 cd "${SERVER_DIR}"

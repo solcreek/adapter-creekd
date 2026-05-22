@@ -51,6 +51,13 @@ describe("runPostbuild", () => {
     );
   }
 
+  async function writeProjectUseCacheHandler(contents = "use-cache-handler"): Promise<void> {
+    await writeFile(
+      path.join(projectDir, ".solcreek-creekd-use-cache-handler.mjs"),
+      contents,
+    );
+  }
+
   it("copies public and static assets into standalone output", async () => {
     await writeStandalone();
     await mkdir(path.join(projectDir, "public"), { recursive: true });
@@ -61,7 +68,12 @@ describe("runPostbuild", () => {
     const result = await runPostbuild({ projectDir });
 
     expect(result.copied).toEqual(["public", ".next/static"]);
-    expect(result.skipped).toEqual(["node_modules/next", "cache-handler"]);
+    expect(result.skipped).toEqual([
+      ".next/cache/creekd",
+      "node_modules/next",
+      "cache-handler",
+      "use-cache-handler",
+    ]);
     expect(result.serverFile).toBe(
       path.join(projectDir, ".next", "standalone", "server.js"),
     );
@@ -84,8 +96,10 @@ describe("runPostbuild", () => {
     expect(result.skipped).toEqual([
       "public",
       ".next/static",
+      ".next/cache/creekd",
       "node_modules/next",
       "cache-handler",
+      "use-cache-handler",
     ]);
   });
 
@@ -106,6 +120,34 @@ describe("runPostbuild", () => {
     )).toBe("ok");
   });
 
+  it("copies build-seeded creekd cache into standalone output", async () => {
+    await writeStandalone();
+    await mkdir(path.join(projectDir, ".next", "cache", "creekd", "entries"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(projectDir, ".next", "cache", "creekd", "entries", "seed.json"),
+      "{}",
+    );
+
+    const result = await runPostbuild({ projectDir });
+
+    expect(result.copied).toEqual([".next/cache/creekd"]);
+    expect(readFileSync(
+      path.join(
+        projectDir,
+        ".next",
+        "standalone",
+        ".next",
+        "cache",
+        "creekd",
+        "entries",
+        "seed.json",
+      ),
+      "utf8",
+    )).toBe("{}");
+  });
+
   it("copies the mirrored creekd cache handler into standalone output", async () => {
     await writeStandalone();
     await writeProjectCacheHandler("handler");
@@ -113,9 +155,28 @@ describe("runPostbuild", () => {
     const result = await runPostbuild({ projectDir });
 
     expect(result.copied).toEqual(["cache-handler"]);
-    expect(result.skipped).toEqual(["public", ".next/static", "node_modules/next"]);
+    expect(result.skipped).toEqual([
+      "public",
+      ".next/static",
+      ".next/cache/creekd",
+      "node_modules/next",
+      "use-cache-handler",
+    ]);
     expect(readFileSync(
       path.join(projectDir, ".next", "standalone", ".solcreek-creekd-cache-handler.mjs"),
+      "utf8",
+    )).toBe("handler");
+  });
+
+  it("copies the mirrored creekd use-cache handler into standalone output", async () => {
+    await writeStandalone();
+    await writeProjectUseCacheHandler("handler");
+
+    const result = await runPostbuild({ projectDir });
+
+    expect(result.copied).toEqual(["use-cache-handler"]);
+    expect(readFileSync(
+      path.join(projectDir, ".next", "standalone", ".solcreek-creekd-use-cache-handler.mjs"),
       "utf8",
     )).toBe("handler");
   });
@@ -127,7 +188,13 @@ describe("runPostbuild", () => {
     const result = await runPostbuild({ projectDir });
 
     expect(result.copied).toEqual(["node_modules/next"]);
-    expect(result.skipped).toEqual(["public", ".next/static", "cache-handler"]);
+    expect(result.skipped).toEqual([
+      "public",
+      ".next/static",
+      ".next/cache/creekd",
+      "cache-handler",
+      "use-cache-handler",
+    ]);
     expect(readFileSync(
       path.join(projectDir, ".next", "standalone", "node_modules", "next", "dist", "server", "next.js"),
       "utf8",
@@ -155,7 +222,13 @@ describe("runPostbuild", () => {
     const result = await runPostbuild({ projectDir });
 
     expect(result.copied).toEqual(["node_modules/next"]);
-    expect(result.skipped).toEqual(["public", ".next/static", "cache-handler"]);
+    expect(result.skipped).toEqual([
+      "public",
+      ".next/static",
+      ".next/cache/creekd",
+      "cache-handler",
+      "use-cache-handler",
+    ]);
     expect(readFileSync(tracedPackageFile, "utf8")).toBe("traced-package");
     expect(readFileSync(
       path.join(projectDir, ".next", "standalone", "node_modules", "next", "dist", "server", "next.js"),
@@ -200,8 +273,10 @@ describe("runPostbuild", () => {
     expect(result.skipped).toEqual([
       "public",
       ".next/static",
+      ".next/cache/creekd",
       "node_modules/next",
       "cache-handler",
+      "use-cache-handler",
     ]);
     expect(readFileSync(tracedNextFile, "utf8")).toBe("traced-runtime");
     expect(readFileSync(tracedNextEnvFile, "utf8")).toBe("traced-env");

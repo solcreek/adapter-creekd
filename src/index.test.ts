@@ -8,14 +8,28 @@ import { createCreekdAdapter } from "./index.js";
 describe("createCreekdAdapter.modifyConfig", () => {
   let projectDir: string;
   let oldCwd: string;
+  let oldCacheDir: string | undefined;
+  let oldL1Entries: string | undefined;
 
   beforeEach(() => {
     oldCwd = process.cwd();
+    oldCacheDir = process.env.CREEK_NEXT_CACHE_DIR;
+    oldL1Entries = process.env.CREEK_NEXT_CACHE_L1_ENTRIES;
     projectDir = mkdtempSync(path.join(tmpdir(), "adapter-creekd-config-"));
     process.chdir(projectDir);
   });
 
   afterEach(() => {
+    if (oldCacheDir === undefined) {
+      delete process.env.CREEK_NEXT_CACHE_DIR;
+    } else {
+      process.env.CREEK_NEXT_CACHE_DIR = oldCacheDir;
+    }
+    if (oldL1Entries === undefined) {
+      delete process.env.CREEK_NEXT_CACHE_L1_ENTRIES;
+    } else {
+      process.env.CREEK_NEXT_CACHE_L1_ENTRIES = oldL1Entries;
+    }
     process.chdir(oldCwd);
     rmSync(projectDir, { recursive: true, force: true });
   });
@@ -40,5 +54,28 @@ describe("createCreekdAdapter.modifyConfig", () => {
     });
     expect(config?.output).toBe("standalone");
     expect(config?.cacheHandler).toContain("cache-handler");
+    expect(config?.cacheHandlers).toMatchObject({
+      default: expect.stringContaining("use-cache-handler"),
+      remote: expect.stringContaining("use-cache-handler"),
+    });
+  });
+
+  it("applies cache env options during build so seeded entries use runtime storage", () => {
+    const adapter = createCreekdAdapter({
+      env: {
+        CREEK_NEXT_CACHE_DIR: "/var/cache/next",
+        CREEK_NEXT_CACHE_L1_ENTRIES: 512,
+      },
+    });
+
+    adapter.modifyConfig?.(
+      {},
+      {
+        phase: "phase-production-build",
+      } as Parameters<NonNullable<typeof adapter.modifyConfig>>[1],
+    );
+
+    expect(process.env.CREEK_NEXT_CACHE_DIR).toBe("/var/cache/next");
+    expect(process.env.CREEK_NEXT_CACHE_L1_ENTRIES).toBe("512");
   });
 });

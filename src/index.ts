@@ -60,22 +60,51 @@ const ownCacheHandlerPath = [
     "cache-handler.js",
   );
 
-function mirrorCacheHandlerIntoProject(cacheHandlerPath: string): string {
-  if (!existsSync(cacheHandlerPath)) return cacheHandlerPath;
+const ownUseCacheHandlerPath = [
+  new URL("./use-cache-handler.js", import.meta.url),
+  new URL("../dist/use-cache-handler.js", import.meta.url),
+]
+  .map((url) => fileURLToPath(url))
+  .find((candidate) => existsSync(candidate)) ??
+  path.join(
+    process.cwd(),
+    "node_modules",
+    "@solcreek",
+    "adapter-creekd",
+    "dist",
+    "use-cache-handler.js",
+  );
 
-  const localPath = path.join(process.cwd(), ".solcreek-creekd-cache-handler.mjs");
-  if (path.resolve(cacheHandlerPath) === path.resolve(localPath)) return localPath;
+function mirrorHandlerIntoProject(handlerPath: string, localFileName: string): string {
+  if (!existsSync(handlerPath)) return handlerPath;
+
+  const localPath = path.join(process.cwd(), localFileName);
+  if (path.resolve(handlerPath) === path.resolve(localPath)) return localPath;
 
   try {
-    copyFileSync(cacheHandlerPath, localPath);
+    copyFileSync(handlerPath, localPath);
     return localPath;
   } catch (err) {
     console.warn(
-      `  [Creekd Adapter] Failed to mirror cache-handler into project (${
+      `  [Creekd Adapter] Failed to mirror ${path.basename(handlerPath)} into project (${
         err instanceof Error ? err.message : String(err)
-      }); falling back to ${cacheHandlerPath}`,
+      }); falling back to ${handlerPath}`,
     );
-    return cacheHandlerPath;
+    return handlerPath;
+  }
+}
+
+function applyBuildCacheEnv(entries: string[]): void {
+  for (const entry of entries) {
+    const separator = entry.indexOf("=");
+    if (separator <= 0) continue;
+    const key = entry.slice(0, separator);
+    if (
+      key === "CREEK_NEXT_CACHE_DIR" ||
+      key === "CREEK_NEXT_CACHE_L1_ENTRIES"
+    ) {
+      process.env[key] = entry.slice(separator + 1);
+    }
   }
 }
 
@@ -121,6 +150,8 @@ export function createCreekdAdapter(
       // Production builds only; dev/lint phases pass through.
       if (ctx.phase !== "phase-production-build") return baseConfig;
 
+      applyBuildCacheEnv(env);
+
       // The whole self-host story rests on Next.js emitting the
       // standalone bundle. Force it here so users don't need to
       // remember the next.config.output knob.
@@ -129,7 +160,21 @@ export function createCreekdAdapter(
         // Override adapter-core's portable in-memory default with the
         // creekd-specific L1 + filesystem-L2 handler. The mirrored local
         // path avoids Turbopack path-safety issues with pnpm realpaths.
-        cacheHandler: mirrorCacheHandlerIntoProject(ownCacheHandlerPath),
+        cacheHandler: mirrorHandlerIntoProject(
+          ownCacheHandlerPath,
+          ".solcreek-creekd-cache-handler.mjs",
+        ),
+        cacheHandlers: {
+          ...baseConfig.cacheHandlers,
+          default: mirrorHandlerIntoProject(
+            ownUseCacheHandlerPath,
+            ".solcreek-creekd-use-cache-handler.mjs",
+          ),
+          remote: mirrorHandlerIntoProject(
+            ownUseCacheHandlerPath,
+            ".solcreek-creekd-use-cache-handler.mjs",
+          ),
+        },
         // Next's built-in in-memory cache would sit in front of the custom
         // handler and make invalidation/persistence less predictable. Keep
         // all hot-cache policy inside CreekdCacheHandler's own L1.

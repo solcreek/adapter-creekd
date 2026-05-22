@@ -53,7 +53,7 @@ adapter-core and creekd should not carry:
 
 3. Build-time cache seeding
    - Static prerenders, PPR shells, and cache metadata should be seeded
-     into the persistent cache when practical.
+     into the persistent cache and carried into standalone output.
    - This mirrors the adapter-creek Cloudflare path, but maps to local
      disk/SQLite instead of KV/R2/Durable Objects.
 

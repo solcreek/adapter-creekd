@@ -19,6 +19,9 @@
     },
     "./cache-handler": {
       "default": "./dist/cache-handler.js"
+    },
+    "./use-cache-handler": {
+      "default": "./dist/use-cache-handler.js"
     }
   },
   "files": [

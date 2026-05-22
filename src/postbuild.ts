@@ -54,6 +54,19 @@ async function copyFileIfExists(
   result.copied.push(label);
 }
 
+async function copyBuildCacheIfExists(
+  distDir: string,
+  serverDir: string,
+  result: PostbuildResult,
+): Promise<void> {
+  await copyDirectoryIfExists(
+    path.join(distDir, "cache", "creekd"),
+    path.join(serverDir, ".next", "cache", "creekd"),
+    ".next/cache/creekd",
+    result,
+  );
+}
+
 async function realpathOrSelf(filePath: string): Promise<string> {
   try {
     return await fs.realpath(filePath);
@@ -139,6 +152,8 @@ async function findStandaloneServerFile(standaloneDir: string): Promise<string |
  * paths relative to .next/standalone/server.js. Turbopack adapter builds
  * can also miss the root Next.js runtime trace, so we fill missing Next.js
  * runtime files from the project-local install without overwriting traced files.
+ * The creekd cache handler also seeds prerender/cache entries during build;
+ * copy the default cache tree so standalone runtime sees the same L2 state.
  */
 export async function runPostbuild(
   options: PostbuildOptions = {},
@@ -175,11 +190,18 @@ export async function runPostbuild(
     ".next/static",
     result,
   );
+  await copyBuildCacheIfExists(distDir, serverDir, result);
   await copyNextRuntimeIfIncomplete(projectDir, serverDir, result);
   await copyFileIfExists(
     path.join(projectDir, ".solcreek-creekd-cache-handler.mjs"),
     path.join(serverDir, ".solcreek-creekd-cache-handler.mjs"),
     "cache-handler",
+    result,
+  );
+  await copyFileIfExists(
+    path.join(projectDir, ".solcreek-creekd-use-cache-handler.mjs"),
+    path.join(serverDir, ".solcreek-creekd-use-cache-handler.mjs"),
+    "use-cache-handler",
     result,
   );
 

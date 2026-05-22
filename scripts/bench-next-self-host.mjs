@@ -296,6 +296,7 @@ async function main() {
   let server;
   let serverOutput = "";
   try {
+    const cacheDir = path.join(projectDir, ".cache", "creekd-next");
     console.log(`next self-host benchmark: iterations=${ITERATIONS} port=${PORT}`);
     console.log(`fixture: ${path.relative(ROOT, FIXTURE)}`);
     console.log(`workspace: ${projectDir}`);
@@ -308,6 +309,8 @@ async function main() {
         env: {
           ADAPTER_CREEKD_ROOT: ROOT,
           BENCH_DEPLOYMENT_ID: `bench-${Date.now()}`,
+          CREEK_NEXT_CACHE_DIR: cacheDir,
+          CREEK_NEXT_CACHE_L1_ENTRIES: process.env.CREEK_NEXT_CACHE_L1_ENTRIES ?? "2048",
         },
       },
     );
@@ -316,7 +319,6 @@ async function main() {
     const postbuild = await run(process.execPath, [path.join(ROOT, "dist", "cli.js"), "postbuild", "--project-dir", projectDir]);
     console.log(`postbuild: ${postbuild.ms.toFixed(0)}ms`);
 
-    const cacheDir = path.join(projectDir, ".cache", "creekd-next");
     const serverFile = await findStandaloneServerFile(projectDir);
     server = startStandaloneServer(serverFile, cacheDir, (chunk) => {
       serverOutput += chunk;
