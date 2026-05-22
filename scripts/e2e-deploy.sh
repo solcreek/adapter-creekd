@@ -133,7 +133,8 @@ console.log(matches[0]);
 ")
 SERVER_DIR=$(dirname "${SERVER_FILE}")
 
-export HOSTNAME="${HOSTNAME:-127.0.0.1}"
+ADAPTER_HOST="${ADAPTER_HOST:-127.0.0.1}"
+export HOSTNAME="${ADAPTER_HOST}"
 export NODE_ENV="${NODE_ENV:-production}"
 export PORT
 export CREEK_NEXT_CACHE_DIR="${CREEK_NEXT_CACHE_DIR:-${APP_DIR}/.adapter-creekd-cache}"
@@ -159,7 +160,7 @@ echo "${SERVER_PID}" > .adapter-server.pid
 } > .adapter-runtime.env
 
 for _ in $(seq 1 60); do
-  if curl -fsS "http://localhost:${PORT}${HEALTHCHECK_PATH}" > /dev/null 2>&1; then
+  if curl -fsS "http://${ADAPTER_HOST}:${PORT}${HEALTHCHECK_PATH}" > /dev/null 2>&1; then
     break
   fi
   if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
@@ -170,7 +171,7 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 
-if ! curl -fsS "http://localhost:${PORT}${HEALTHCHECK_PATH}" > /dev/null 2>&1; then
+if ! curl -fsS "http://${ADAPTER_HOST}:${PORT}${HEALTHCHECK_PATH}" > /dev/null 2>&1; then
   log "Server failed to start within 60s"
   cat .adapter-server.log >&2
   kill "${SERVER_PID}" 2>/dev/null || true
@@ -183,5 +184,5 @@ fi
   echo "IMMUTABLE_ASSET_TOKEN: undefined"
 } > .adapter-build.log
 
-log "Ready at http://localhost:${PORT}"
-echo "http://localhost:${PORT}"
+log "Ready at http://${ADAPTER_HOST}:${PORT}"
+echo "http://${ADAPTER_HOST}:${PORT}"
