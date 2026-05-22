@@ -39,6 +39,66 @@ async function copyDirectoryIfExists(
   result.copied.push(label);
 }
 
+async function copyFileIfExists(
+  from: string,
+  to: string,
+  label: string,
+  result: PostbuildResult,
+): Promise<void> {
+  if (!(await pathExists(from))) {
+    result.skipped.push(label);
+    return;
+  }
+  await fs.mkdir(path.dirname(to), { recursive: true });
+  await fs.copyFile(from, to);
+  result.copied.push(label);
+}
+
+async function realpathOrSelf(filePath: string): Promise<string> {
+  try {
+    return await fs.realpath(filePath);
+  } catch {
+    return filePath;
+  }
+}
+
+async function copyNextRuntimeIfIncomplete(
+  projectDir: string,
+  serverDir: string,
+  result: PostbuildResult,
+): Promise<void> {
+  const sourceNextDir = path.join(projectDir, "node_modules", "next");
+  if (!(await pathExists(sourceNextDir))) {
+    result.skipped.push("node_modules/next");
+    return;
+  }
+
+  const targetNextDir = path.join(serverDir, "node_modules", "next");
+  const sourceRuntimeDir = path.dirname(await fs.realpath(sourceNextDir));
+  const targetRuntimeDir = path.dirname(await realpathOrSelf(targetNextDir));
+
+  const requiredRuntimeFiles = [
+    path.join("next", "dist", "server", "next.js"),
+    path.join("@next", "env", "package.json"),
+  ];
+  const isComplete = await Promise.all(
+    requiredRuntimeFiles.map((file) => pathExists(path.join(targetRuntimeDir, file))),
+  );
+  if (isComplete.every(Boolean)) {
+    result.skipped.push("node_modules/next");
+    return;
+  }
+
+  await fs.mkdir(targetRuntimeDir, { recursive: true });
+  await fs.cp(sourceRuntimeDir, targetRuntimeDir, {
+    recursive: true,
+    force: false,
+    errorOnExist: false,
+    dereference: true,
+  });
+  result.copied.push("node_modules/next");
+}
+
 async function findStandaloneServerFile(standaloneDir: string): Promise<string | null> {
   const standardServerFile = path.join(standaloneDir, "server.js");
   if (await pathExists(standardServerFile)) return standardServerFile;
@@ -76,7 +136,9 @@ async function findStandaloneServerFile(standaloneDir: string): Promise<string |
 /**
  * Run after `next build`. Next.js standalone output intentionally omits
  * public/ and .next/static, but its server expects them at standard
- * paths relative to .next/standalone/server.js.
+ * paths relative to .next/standalone/server.js. Turbopack adapter builds
+ * can also miss the root Next.js runtime trace, so we fill missing Next.js
+ * runtime files from the project-local install without overwriting traced files.
  */
 export async function runPostbuild(
   options: PostbuildOptions = {},
@@ -111,6 +173,13 @@ export async function runPostbuild(
     path.join(distDir, "static"),
     path.join(serverDir, ".next", "static"),
     ".next/static",
+    result,
+  );
+  await copyNextRuntimeIfIncomplete(projectDir, serverDir, result);
+  await copyFileIfExists(
+    path.join(projectDir, ".solcreek-creekd-cache-handler.mjs"),
+    path.join(serverDir, ".solcreek-creekd-cache-handler.mjs"),
+    "cache-handler",
     result,
   );
 

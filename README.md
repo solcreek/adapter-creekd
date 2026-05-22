@@ -42,7 +42,7 @@ const config: NextConfig = {
 export default config;
 ```
 
-Add a `postbuild` script so Next.js's standalone tree gets its static and public assets (this matches Next.js's own self-host guidance — the standalone output deliberately omits them):
+Add a `postbuild` script so Next.js's standalone tree is complete. This copies the static/public assets that Next.js deliberately omits from standalone output, and fills any Turbopack adapter-build runtime files that Next's root server trace missed:
 
 ```json
 {

@@ -1,3 +1,4 @@
+import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { NextAdapter } from "next";
 
@@ -7,6 +8,7 @@ import type { NextStandaloneRuntime } from "./manifest.js";
 type BuildContext = Parameters<NonNullable<NextAdapter["onBuildComplete"]>>[0];
 
 const OUTPUT_DIR = ".creek-creekd";
+const EMPTY_TRACE_MANIFEST = JSON.stringify({ version: 1, files: [] }) + "\n";
 
 export interface HandleBuildOptions {
   /** Runtime the supervised process should use. */
@@ -40,6 +42,22 @@ function resolveStandaloneServerFile(ctx: BuildContext): string {
   return path.join(standaloneDir, "server.js");
 }
 
+async function ensureTraceManifest(filePath: string): Promise<void> {
+  try {
+    await fs.access(filePath);
+  } catch {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, EMPTY_TRACE_MANIFEST, "utf8");
+  }
+}
+
+async function ensureStandaloneTraceManifests(distDir: string): Promise<void> {
+  await Promise.all([
+    ensureTraceManifest(path.join(distDir, "next-server.js.nft.json")),
+    ensureTraceManifest(path.join(distDir, "next-minimal-server.js.nft.json")),
+  ]);
+}
+
 // Sequencing: Next.js's official NextAdapter calls `onBuildComplete`
 // BEFORE running `output: 'standalone'` codegen (the source comment is
 // explicit: "This should come after output: export handling but before
@@ -66,6 +84,12 @@ export async function handleBuild(
 
   const standaloneDir = path.join(distDir, "standalone");
   const serverFile = resolveStandaloneServerFile(ctx);
+
+  // Turbopack adapter builds can skip Next's legacy node-file-trace phase,
+  // but Next's standalone writer still expects these root trace manifests
+  // immediately after onBuildComplete. Write empty placeholders when absent
+  // so codegen can finish; per-route trace files remain handled by Next.
+  await ensureStandaloneTraceManifests(distDir);
 
   await writeManifest({
     outputDir: path.join(projectDir, OUTPUT_DIR),

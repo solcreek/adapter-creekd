@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
@@ -106,6 +106,29 @@ describe("handleBuild", () => {
     await expect(
       handleBuild(makeCtx(projectDir, distDir), baseOpts),
     ).resolves.toBeUndefined();
+  });
+
+  it("creates missing root trace manifests before standalone codegen", async () => {
+    await handleBuild(makeCtx(projectDir, distDir), baseOpts);
+
+    expect(existsSync(path.join(distDir, "next-server.js.nft.json"))).toBe(true);
+    expect(existsSync(path.join(distDir, "next-minimal-server.js.nft.json"))).toBe(true);
+    expect(JSON.parse(
+      readFileSync(path.join(distDir, "next-server.js.nft.json"), "utf8"),
+    )).toEqual({ version: 1, files: [] });
+  });
+
+  it("preserves existing root trace manifests", async () => {
+    const tracePath = path.join(distDir, "next-server.js.nft.json");
+    mkdirSync(distDir, { recursive: true });
+    writeFileSync(tracePath, JSON.stringify({ version: 1, files: ["server.js"] }) + "\n");
+
+    await handleBuild(makeCtx(projectDir, distDir), baseOpts);
+
+    expect(JSON.parse(readFileSync(tracePath, "utf8"))).toEqual({
+      version: 1,
+      files: ["server.js"],
+    });
   });
 
   it("preserves runtime: node when chosen", async () => {
