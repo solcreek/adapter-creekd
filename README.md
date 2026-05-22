@@ -95,6 +95,8 @@ Production builds use adapter-creekd's Next.js cache handler:
 - L1: process-local memory for hot entries.
 - L2: filesystem persistence for ISR, fetch cache, and `'use cache'` data.
 - Tag invalidation state is persisted, so `revalidateTag()` survives process restart.
+- Next's built-in memory cache is disabled (`cacheMaxMemorySize: 0`) so invalidation and persistence are owned by the creekd handler.
+- Optimized `next/image` entries opt into the same handler via `images.customCacheHandler`.
 
 By default, the cache lives under Next's server dist tree at `.next/cache/creekd`.
 Set `CREEK_NEXT_CACHE_DIR=/path/to/cache` to place it on a creekd volume or another

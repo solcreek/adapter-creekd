@@ -130,6 +130,16 @@ export function createCreekdAdapter(
         // creekd-specific L1 + filesystem-L2 handler. The mirrored local
         // path avoids Turbopack path-safety issues with pnpm realpaths.
         cacheHandler: mirrorCacheHandlerIntoProject(ownCacheHandlerPath),
+        // Next's built-in in-memory cache would sit in front of the custom
+        // handler and make invalidation/persistence less predictable. Keep
+        // all hot-cache policy inside CreekdCacheHandler's own L1.
+        cacheMaxMemorySize: 0,
+        images: {
+          ...baseConfig.images,
+          // Next 16.2 still requires this opt-in for optimized image entries
+          // to use cacheHandler; the docs say it becomes default later.
+          customCacheHandler: true,
+        },
         output: "standalone",
       };
     },
