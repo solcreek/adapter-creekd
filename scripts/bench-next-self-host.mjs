@@ -231,6 +231,54 @@ async function findStandaloneServerFile(projectDir) {
   return matches[0];
 }
 
+function startStandaloneServer(serverFile, cacheDir, appendOutput) {
+  const child = spawn(process.execPath, [serverFile], {
+    cwd: path.dirname(serverFile),
+    env: {
+      ...process.env,
+      BENCH_BASE_URL: BASE_URL,
+      CREEK_NEXT_CACHE_DIR: cacheDir,
+      CREEK_NEXT_CACHE_L1_ENTRIES: process.env.CREEK_NEXT_CACHE_L1_ENTRIES ?? "2048",
+      HOSTNAME: "127.0.0.1",
+      NODE_ENV: "production",
+      PORT: String(PORT),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout.on("data", (chunk) => {
+    appendOutput(chunk);
+    if (VERBOSE) process.stdout.write(chunk);
+  });
+  child.stderr.on("data", (chunk) => {
+    appendOutput(chunk);
+    if (VERBOSE) process.stderr.write(chunk);
+  });
+  child.on("exit", (code, signal) => {
+    if (code !== null && code !== 0) {
+      appendOutput(`\nserver exited with code ${code}`);
+    } else if (signal && signal !== "SIGTERM") {
+      appendOutput(`\nserver exited with signal ${signal}`);
+    }
+  });
+  return child;
+}
+
+function stopServer(server) {
+  if (!server || server.killed) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      server.kill("SIGKILL");
+      resolve();
+    }, 3_000);
+    server.once("exit", () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+    server.kill("SIGTERM");
+  });
+}
+
 async function prepareProject() {
   const benchRoot = path.join(ROOT, ".bench");
   await fs.mkdir(benchRoot, { recursive: true });
@@ -270,33 +318,8 @@ async function main() {
 
     const cacheDir = path.join(projectDir, ".cache", "creekd-next");
     const serverFile = await findStandaloneServerFile(projectDir);
-    server = spawn(process.execPath, [serverFile], {
-      cwd: path.dirname(serverFile),
-      env: {
-        ...process.env,
-        BENCH_BASE_URL: BASE_URL,
-        CREEK_NEXT_CACHE_DIR: cacheDir,
-        CREEK_NEXT_CACHE_L1_ENTRIES: process.env.CREEK_NEXT_CACHE_L1_ENTRIES ?? "2048",
-        HOSTNAME: "127.0.0.1",
-        NODE_ENV: "production",
-        PORT: String(PORT),
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    server.stdout.on("data", (chunk) => {
+    server = startStandaloneServer(serverFile, cacheDir, (chunk) => {
       serverOutput += chunk;
-      if (VERBOSE) process.stdout.write(chunk);
-    });
-    server.stderr.on("data", (chunk) => {
-      serverOutput += chunk;
-      if (VERBOSE) process.stderr.write(chunk);
-    });
-    server.on("exit", (code, signal) => {
-      if (code !== null && code !== 0) {
-        serverOutput += `\nserver exited with code ${code}`;
-      } else if (signal) {
-        serverOutput += `\nserver exited with signal ${signal}`;
-      }
     });
 
     await waitForServer();
@@ -324,6 +347,25 @@ async function main() {
     summaries.push(await benchRoute("image-hot", imageUrl));
     summaries.push(await benchRoute("streaming", "/streaming", Math.max(3, Math.min(ITERATIONS, 10))));
 
+    await stopServer(server);
+    server = undefined;
+    server = startStandaloneServer(serverFile, cacheDir, (chunk) => {
+      serverOutput += chunk;
+    });
+    await waitForServer();
+
+    summaries.push(summarize("home-after-restart", [await request("GET", "/")]));
+    summaries.push(summarize("isr-after-restart", [await request("GET", "/isr")]));
+    const taggedRestart = await request("GET", "/tagged");
+    const taggedRestartOrigin = extractBenchOrigin(taggedRestart.body);
+    if (taggedRestartOrigin !== taggedRefreshed.origin) {
+      throw new Error(
+        `tagged fetch cache did not survive restart; got ${taggedRestartOrigin || "-"}, expected ${taggedRefreshed.origin || "-"}`,
+      );
+    }
+    summaries.push(summarize("tagged-after-restart", [taggedRestart]));
+    summaries.push(summarize("image-after-restart", [await request("GET", imageUrl)]));
+
     printSummaries(summaries);
     console.log(
       `tag revalidate origin: ${taggedBeforeOrigin || "-"} -> ${taggedAfterOrigin || "-"} -> ${taggedRefreshed.origin || "-"} (refreshed)`,
@@ -335,9 +377,7 @@ async function main() {
     }
     throw err;
   } finally {
-    if (server && !server.killed) {
-      server.kill("SIGTERM");
-    }
+    await stopServer(server);
     if (!KEEP) {
       await fs.rm(projectDir, { recursive: true, force: true });
     } else {
