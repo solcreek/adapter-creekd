@@ -126,8 +126,8 @@ pnpm bench:next
 
 `bench:next` builds a real Next.js app with this adapter, runs the postbuild
 asset copy, starts the standalone server, and measures home route hits, ISR,
-tagged fetch cache with `revalidateTag()`, optimized image cache, and streaming
-TTFB/total latency. Useful knobs:
+tagged fetch cache with `revalidateTag()`, optimized image cache, streaming
+TTFB/total latency, and cache warmth after a server restart. Useful knobs:
 
 ```bash
 NEXT_BENCH_ITERATIONS=50 pnpm bench:next
