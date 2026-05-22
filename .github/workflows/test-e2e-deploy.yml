@@ -1,0 +1,130 @@
+name: test-e2e-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      nextjsRef:
+        description: 'Next.js repo ref (branch/tag/SHA)'
+        default: '493fba50f36ff8dd98cb5dd46306a701da080329'
+        type: string
+  # Uncomment for nightly runs:
+  # schedule:
+  #   - cron: '0 2 * * *'
+
+jobs:
+  build:
+    name: Build Next.js + adapter
+    runs-on: ubuntu-latest-8-core
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: adapter
+
+      - uses: actions/checkout@v6
+        with:
+          repository: vercel/next.js
+          ref: ${{ inputs.nextjsRef || 'canary' }}
+          path: nextjs
+          fetch-depth: 25
+
+      - name: Show Next.js ref
+        working-directory: nextjs
+        run: |
+          git rev-parse HEAD
+          git log -1 --oneline
+
+      - uses: actions/setup-node@v6
+        with: { node-version: '22' }
+
+      - name: Setup pnpm
+        run: npm i -g corepack@0.31 && corepack enable
+
+      - name: Install & build Next.js
+        working-directory: nextjs
+        run: pnpm install && pnpm build && pnpm install
+
+      - name: Install Playwright
+        working-directory: nextjs
+        run: pnpm playwright install --with-deps chromium
+
+      - name: Build adapter
+        working-directory: adapter
+        run: pnpm install && pnpm build
+
+      - name: Pack adapter
+        working-directory: adapter
+        run: npm pack --pack-destination "${{ github.workspace }}"
+
+      - uses: actions/cache/save@v5
+        with:
+          path: |
+            nextjs
+            adapter
+            ~/.cache/ms-playwright
+            ${{ github.workspace }}/solcreek-adapter-creekd-*.tgz
+          key: build-${{ github.sha }}-${{ github.run_id }}
+
+  test:
+    name: Tests (${{ matrix.group }})
+    needs: build
+    runs-on: ubuntu-latest-8-core
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        group:
+          [
+            1/16, 2/16, 3/16, 4/16,
+            5/16, 6/16, 7/16, 8/16,
+            9/16, 10/16, 11/16, 12/16,
+            13/16, 14/16, 15/16, 16/16,
+          ]
+    steps:
+      - uses: actions/cache/restore@v5
+        with:
+          path: |
+            nextjs
+            adapter
+            ~/.cache/ms-playwright
+            ${{ github.workspace }}/solcreek-adapter-creekd-*.tgz
+          key: build-${{ github.sha }}-${{ github.run_id }}
+
+      - uses: actions/setup-node@v6
+        with: { node-version: '22' }
+
+      - name: Setup pnpm
+        run: npm i -g corepack@0.31 && corepack enable
+
+      - name: Ensure Playwright browser
+        working-directory: nextjs
+        run: pnpm playwright install chromium
+
+      - name: Make scripts executable
+        run: |
+          chmod +x adapter/scripts/e2e-deploy.sh
+          chmod +x adapter/scripts/e2e-logs.sh
+          chmod +x adapter/scripts/e2e-cleanup.sh
+
+      - name: Resolve adapter tarball
+        id: tarball
+        run: |
+          TARBALL="$(ls -1 "${{ github.workspace }}"/solcreek-adapter-creekd-*.tgz | head -n1)"
+          test -n "$TARBALL" || { echo "no tarball found"; exit 1; }
+          echo "path=$TARBALL" >> "$GITHUB_OUTPUT"
+
+      - name: Run deploy tests
+        working-directory: nextjs
+        env:
+          NEXT_TEST_MODE: deploy
+          NEXT_E2E_TEST_TIMEOUT: 240000
+          NEXT_EXTERNAL_TESTS_FILTERS: test/deploy-tests-manifest.json,${{ github.workspace }}/adapter/test/deploy-tests-manifest.adapter-creekd.json
+          ADAPTER_DIR: ${{ github.workspace }}/adapter
+          ADAPTER_TARBALL: ${{ steps.tarball.outputs.path }}
+          IS_TURBOPACK_TEST: 1
+          NEXT_TEST_JOB: 1
+          NEXT_TELEMETRY_DISABLED: 1
+          NEXT_TEST_DEPLOY_SCRIPT_PATH: ${{ github.workspace }}/adapter/scripts/e2e-deploy.sh
+          NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH: ${{ github.workspace }}/adapter/scripts/e2e-logs.sh
+          NEXT_TEST_CLEANUP_SCRIPT_PATH: ${{ github.workspace }}/adapter/scripts/e2e-cleanup.sh
+        run: node run-tests.js --timings -g ${{ matrix.group }} -c 1 --type e2e

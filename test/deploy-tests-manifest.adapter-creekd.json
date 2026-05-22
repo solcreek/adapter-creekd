@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "_comment": "Adapter-creekd deploy-test exclusions. Merged with Next.js's canonical test/deploy-tests-manifest.json via NEXT_EXTERNAL_TESTS_FILTERS. Empty until a test is proven inapplicable to a single-node self-host adapter.",
+  "suites": {},
+  "rules": {
+    "include": [],
+    "exclude": []
+  }
+}
