@@ -69,7 +69,7 @@ describe("handleBuild", () => {
     expect(manifest.entrypoint).toBe(".next/standalone/server.js");
     expect(manifest.adapter).toEqual({
       name: "@solcreek/adapter-creekd",
-      version: "0.1.1",
+      version: "0.2.0",
     });
     expect(manifest.env).toEqual(["NODE_ENV=production"]);
   });

@@ -6,7 +6,7 @@ import {
   isCreekdDeployManifest,
   type CreekdDeployManifest,
   type CreekdRuntime,
-} from "@solcreek/adapter-core";
+} from "@solcreek/creekd-manifest";
 
 const require = createRequire(import.meta.url);
 const adapterPackage = require("../package.json") as {
@@ -25,7 +25,7 @@ export type CreekdEnv =
  * Next.js build. The creekctl `--from <manifest>` flow reads this to
  * know how to spawn the supervised process.
  *
- * The process-level contract comes from @solcreek/adapter-core so the
+ * The process-level contract comes from @solcreek/creekd-manifest so the
  * adapter and creekctl stay aligned. The extra metadata fields are
  * informational; creekd should only need the process fields.
  */

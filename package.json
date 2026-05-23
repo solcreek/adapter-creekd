@@ -1,6 +1,6 @@
 {
   "name": "@solcreek/adapter-creekd",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Next.js deployment adapter for @solcreek/creekd self-host (Bun / Node runtime)",
   "type": "module",
   "main": "./dist/index.js",
@@ -60,7 +60,8 @@
     "url": "https://github.com/solcreek/adapter-creekd.git"
   },
   "dependencies": {
-    "@solcreek/adapter-core": "^0.2.0"
+    "@solcreek/adapter-next-core": "^0.1.0",
+    "@solcreek/creekd-manifest": "^0.1.0"
   },
   "peerDependencies": {
     "next": ">=16.2.3"

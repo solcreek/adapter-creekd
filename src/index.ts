@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { copyFileSync, existsSync } from "node:fs";
 import type { NextAdapter } from "next";
 
-import { applyBaseModifyConfig } from "@solcreek/adapter-core";
+import { applyBaseModifyConfig } from "@solcreek/adapter-next-core";
 
 import { handleBuild, type HandleBuildOptions } from "./build.js";
 import {
