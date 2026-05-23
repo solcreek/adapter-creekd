@@ -43,7 +43,7 @@ describe("writeManifest", () => {
     expect(manifest.nextVersion).toBe("16.2.3");
     expect(manifest.adapter).toEqual({
       name: "@solcreek/adapter-creekd",
-      version: "0.1.1",
+      version: "0.2.0",
     });
     expect(manifest.runtime).toBe("bun");
     expect(manifest.entrypoint).toBe(".next/standalone/server.js");
