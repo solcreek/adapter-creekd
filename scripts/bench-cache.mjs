@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 
-import CoreCacheHandler from "@solcreek/adapter-core/cache-handler";
+import CoreCacheHandler from "@solcreek/adapter-next-core/cache-handler";
 import CreekdCacheHandler from "../dist/cache-handler.js";
 
 const ENTRY_COUNT = Number.parseInt(process.env.CACHE_BENCH_ENTRIES ?? "5000", 10);
@@ -64,6 +64,11 @@ async function runCandidate(name, makeHandler, makeColdHandler) {
     }));
   }
 
+  // The in-memory baseline uses wall-clock millisecond timestamps and treats
+  // entries as stale only when invalidatedAt > lastModified. Tiny smoke runs can
+  // write and invalidate in the same millisecond, so wait one tick before
+  // measuring revalidateTag.
+  await new Promise((resolve) => setTimeout(resolve, 2));
   timings.push(await time("revalidateTag", async () => {
     await handler.revalidateTag("tag:0");
   }));
@@ -110,7 +115,7 @@ try {
     `cache benchmark: entries=${ENTRY_COUNT} payloadBytes=${PAYLOAD_BYTES} tags=${TAG_COUNT}`,
   );
   const results = [
-    await runCandidate("adapter-core in-memory", async () => new CoreCacheHandler()),
+    await runCandidate("adapter-next-core in-memory", async () => new CoreCacheHandler()),
     await runCandidate("adapter-creekd filesystem L1+L2", async () => {
       return makeCreekdCache(path.join(tmp, "creekd-l1-l2"), ENTRY_COUNT);
     }, async () => {
